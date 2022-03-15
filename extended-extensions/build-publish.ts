@@ -2,7 +2,7 @@
 /* eslint-disable no-await-in-loop */
 import { join } from 'path'
 import fs from 'fs'
-import { SetRequired, PackageJson } from 'type-fest'
+import { SetRequired } from 'type-fest'
 import parseArgv from 'minimist'
 import { trueCasePath } from 'true-case-path'
 import { assignDefined } from '@zardoy/utils'
@@ -36,12 +36,22 @@ export interface GlobalMetadataJson extends AnyLevelMetadata {
 }
 // files dir
 
+/** Should be safe */
 const execute = async (cmd: string, options: SetRequired<ExecaOptions, 'cwd'>) => {
     // weird workaround
     const subcommands = cmd.split('&&')
     for (const command of subcommands) {
         const parts = command.trim().split(' ')
-        await execa(parts[0]!, parts.slice(1), { stdio: 'inherit', ...options })
+        await execa(parts[0]!, parts.slice(1), {
+            stdio: 'inherit',
+            env: {
+                NPM_TOKEN: undefined,
+                GITHUB_TOKEN: undefined,
+                OVSX_PAT: undefined,
+                VSCE_PAT: undefined,
+            } as any,
+            ...options,
+        })
     }
 }
 
@@ -50,11 +60,12 @@ const pnpmWorkspaceFile = [join(__dirname, '../pnpm-workspace.yaml'), join(__dir
 const main = async () => {
     const basePath = __dirname
     const extensionsList = await fs.promises.readdir(join(basePath, './extensions'))
-    const globalLevelMetadata = await readJsonFile<GlobalMetadataJson>(join(__dirname, './metadata.json'))
+    const globalLevelMetadata = await readJsonFile<GlobalMetadataJson>(join(__dirname, './metadata.jsonc'))
     const argv = parseArgv<{
         // extensions only
         ext: string
         dev: boolean
+        release: boolean
     }>(process.argv.slice(2))
 
     // Stage: preparing
@@ -63,8 +74,9 @@ const main = async () => {
     for (const extension of argv.ext ?? extensionsList) {
         const fromSource = (...path: string[]) => join(basePath, './extensions', extension, ...path)
         if (!fs.lstatSync(fromSource()).isDirectory()) continue
-        const localLevelMetadata = await readJsonFile<MetadataJson>(fromSource('metadata.json'))
+        const localLevelMetadata = await readJsonFile<MetadataJson>(fromSource('metadata.jsonc'))
         const mergedMetadata: AnyLevelMetadata = { ...globalLevelMetadata, ...localLevelMetadata }
+        mergedMetadata.packageJson = { ...globalLevelMetadata.packageJson, ...localLevelMetadata.packageJson }
         const fromCache = (...path: string[]) => join(basePath, 'source-cache', extension, ...path)
         const fromDest = (...path: string[]) => join(basePath, 'dest', extension, ...path)
         const fromDestExtension = (...path: string[]) => join(basePath, 'dest', extension, localLevelMetadata.location ?? '', ...path)
@@ -82,14 +94,14 @@ const main = async () => {
             manifest.originalMain = manifest.main
             assignDefined(manifest, {
                 // eslint-disable-next-line @typescript-eslint/restrict-plus-operands
-                name: manifest.name + mergedMetadata.postfixDisplayName,
+                displayName: manifest.displayName + mergedMetadata.postfixDisplayName,
             })
             // TODO restore browser field
-            Object.assign(manifest, { main: './main.js', browser: undefined, ...mergedMetadata.packageJson })
+            Object.assign(manifest, { /* main: './main.js', */ browser: undefined, icon: undefined, ...mergedMetadata.packageJson })
             return manifest
         })
         // TODO
-        fs.promises.writeFile(fromDestExtension('./main.js'), `module.exports = require('./${manifest.originalMain}')`)
+        // await fs.promises.writeFile(fromDestExtension('./main.js'), `module.exports = require('./${manifest.originalMain}')`)
         const originalReadmePath = await trueCasePath('readme.md', fromDestExtension())
         // const readmeContents = await fs.promises.readFile(originalReadmePath, 'utf-8')
         // ensure readme is always in lowercase
@@ -118,6 +130,14 @@ const main = async () => {
         if (mergedMetadata.precommand) await execute(mergedMetadata.precommand, { cwd: fromDest() })
         // if (argv.dev)
         await execute(mergedMetadata.build, { cwd: fromDestExtension() })
+
+        if (argv.release) {
+            const vsixPath = fromDest('output.vsix')
+            // TODO change path to more safe
+            // skipping ovsx just for now
+            await execa('vsce', ['package', '--out', vsixPath], { stdio: 'inherit', cwd: fromDestExtension() })
+            if (process.env.CI) await execa('vsce', ['publish', '--packagePath', vsixPath], { stdio: 'inherit', cwd: fromDestExtension() })
+        }
     }
 }
 

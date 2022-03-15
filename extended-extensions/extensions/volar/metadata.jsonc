@@ -1,8 +1,9 @@
 {
-    "repo": "johnsoncodehk/volar#fb6912ca300ae0a0f4ca0d0aa4c17f691dd930ef",
+    "repo": "johnsoncodehk/volar#31edc9e4c229643fd0594896c6ec63a64a9c1e30",
     "repoPrev": "johnsoncodehk/volar#03eaf26e0b1259ffa2b5690168a2d6a8baa81cbc",
     "location": "extensions/vscode-vue-language-features",
     "packageJson": {
+        "displayName": "Volar (Extended)",
         "keywords": []
     }
 }
