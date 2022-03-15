@@ -1,0 +1,8 @@
+{
+    "postfixDisplayName": " (Extended)",
+    "precommand": "pnpm i && pnpm build",
+    "build": "pnpm build",
+    "packageJson": {
+        "publisher": "zardoy"
+    }
+}

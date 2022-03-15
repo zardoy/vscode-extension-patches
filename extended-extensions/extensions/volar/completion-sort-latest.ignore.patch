@@ -1,0 +1,14 @@
+diff --git a/packages/vue-language-server/src/features/languageFeatures.ts b/packages/vue-language-server/src/features/languageFeatures.ts
+index 1a21427d..7bdf670f 100644
+--- a/packages/vue-language-server/src/features/languageFeatures.ts
++++ b/packages/vue-language-server/src/features/languageFeatures.ts
+@@ -22,6 +22,9 @@ export function register(
+ 			handler.context,
+ 		);
+ 		const insertReplaceSupport = params.capabilities.textDocument?.completion?.completionItem?.insertReplaceSupport ?? false;
++		if (list) list.items.forEach((item, i) => {
++			item.sortText = `${item.sortText??''}${i}`
++		})
+ 		if (!insertReplaceSupport && list) {
+ 			for (const item of list.items) {
+ 				if (item.textEdit && vscode.InsertReplaceEdit.is(item.textEdit)) {

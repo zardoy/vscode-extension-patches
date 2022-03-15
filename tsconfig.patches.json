@@ -1,0 +1,7 @@
+{
+    "extends": "@zardoy/tsconfig",
+    "compilerOptions": {
+        "lib": ["ESNext", "DOM"]
+    },
+    "include": ["modules/*/browser-patch"]
+}

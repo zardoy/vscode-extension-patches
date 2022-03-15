@@ -13,13 +13,13 @@ export const activate = async () => {
         return
     }
 
-    console.log(extensionCtx.globalStorageUri.fsPath)
+    console.log('suggested copy:', extensionCtx.globalStoragePath)
 
-    // monkeyPatch.exports.contribute(getExtensionId(true), {
-    //     folderMap: {
-    //         'my-custom-modules': join(extensionCtx.extensionPath, 'custom-modules'),
-    //     },
-    //     browserModules: ['my-custom-modules/browser1'],
-    //     mainProcessModules: ['my-custom-modules/mainProcess1'],
-    // })
+    monkeyPatch.exports.contribute(getExtensionId(true), {
+        folderMap: {
+            'capslock-vim-patch': join(extensionCtx.extensionPath, ''),
+        },
+        browserModules: ['capslock-vim-patch/browser-patch'],
+        mainProcessModules: [],
+    })
 }
