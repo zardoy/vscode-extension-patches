@@ -1,6 +1,7 @@
 {
   "name": "vscode-patches",
   "scripts": {
+    "release": "ts-node -T ./extended-extensions/build-publish.ts --release",
     "watch-patches": "node buildPatches.mjs dev",
     "build-patches": "node buildPatches.mjs"
   },

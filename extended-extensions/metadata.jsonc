@@ -1,6 +1,6 @@
 {
     "postfixDisplayName": " (Extended)",
-    "precommand": "pnpm i && pnpm build",
+    "precommand": "pnpm i --no-frozen-lockfile && pnpm build",
     "build": "pnpm build",
     "packageJson": {
         "publisher": "zardoy"
