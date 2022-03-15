@@ -9,6 +9,9 @@ out
 .nuxt
 .cache
 **/src/generated.ts
+source-cache
+dest
+builder/wrapper.ts
 
 coverage
 *.lcov

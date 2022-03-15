@@ -48,8 +48,9 @@ const execute = async (cmd: string, options: SetRequired<ExecaOptions, 'cwd'>) =
 const pnpmWorkspaceFile = [join(__dirname, '../pnpm-workspace.yaml'), join(__dirname, '../pnpm-workspace.old.yaml')] as const
 
 const main = async () => {
-    const basePath = __dirname
-    const extensionsList = await fs.promises.readdir(join(basePath, './extensions'))
+    const basePath = join(__dirname, '..')
+    const extensionsPath = join(basePath, 'extended-extensions/extensions')
+    const extensionsList = await fs.promises.readdir(extensionsPath)
     const globalLevelMetadata = await readJsonFile<GlobalMetadataJson>(join(__dirname, './metadata.json'))
     const argv = parseArgv<{
         // extensions only
@@ -61,13 +62,15 @@ const main = async () => {
     await fs.promises.rename(pnpmWorkspaceFile[0], pnpmWorkspaceFile[1])
 
     for (const extension of argv.ext ?? extensionsList) {
-        const fromSource = (...path: string[]) => join(basePath, './extensions', extension, ...path)
+        const fromSource = (...path: string[]) => join(extensionsPath, extension, ...path)
         if (!fs.lstatSync(fromSource()).isDirectory()) continue
         const localLevelMetadata = await readJsonFile<MetadataJson>(fromSource('metadata.json'))
         const mergedMetadata: AnyLevelMetadata = { ...globalLevelMetadata, ...localLevelMetadata }
+
         const fromCache = (...path: string[]) => join(basePath, 'source-cache', extension, ...path)
         const fromDest = (...path: string[]) => join(basePath, 'dest', extension, ...path)
-        const fromDestExtension = (...path: string[]) => join(basePath, 'dest', extension, localLevelMetadata.location ?? '', ...path)
+        const fromDestExtension = (...path: string[]) => fromDest(localLevelMetadata.location ?? '', ...path)
+
         console.log('Extension target:', fromDestExtension())
         if (!fs.existsSync(fromCache())) await gitly(localLevelMetadata.repo, fromCache(), {})
         if (fs.existsSync(fromDest())) await fsExtra.rm(fromDest(), { recursive: true })
@@ -75,7 +78,9 @@ const main = async () => {
         // TODO make pkg from release-action
 
         let manifest
+        let originalFullId: string
         await modifyPackageJsonFile({ dir: fromDestExtension() }, manifestUntyped => {
+            originalFullId = `${manifest.publisher}.${manifest.name}`
             manifest = manifestUntyped as any
             manifest.originalDisplayName = manifest.displayName
             if (!manifest.main) throw new Error('No main script')
@@ -99,7 +104,7 @@ const main = async () => {
             fromDestExtension('README.MD'),
             dedent`
               # ${manifest.displayName}
-              ❗❗❗ This is extended version of [${manifest.originalDisplayName}](https://marketplace.visualstudio.com/items?itemName=${manifest.publisher}.${manifest.name}). You need to disable original extension in order this extension to work!
+              ❗❗❗ This is extended version of [${manifest.originalDisplayName}](https://marketplace.visualstudio.com/items?itemName=${originalFullId}). You need to disable original extension in order this extension to work!
               ${newReadmeContents}
             `,
         )

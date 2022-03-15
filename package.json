@@ -4,26 +4,16 @@
     "watch-patches": "node buildPatches.mjs dev",
     "build-patches": "node buildPatches.mjs"
   },
-  "devDependencies": {
-    "@types/fs-extra": "^9.0.13",
-    "@types/minimist": "^1.2.2",
-    "@zardoy/tsconfig": "^1.4.0",
+  "dependencies": {
     "@zardoy/utils": "^0.0.5",
+    "execa": "5"
+  },
+  "devDependencies": {
+    "@zardoy/tsconfig": "^1.4.0",
     "esbuild": "^0.14.25",
     "eslint": "^8.11.0",
     "eslint-config-zardoy": "^0.2.10",
-    "execa": "5",
-    "fs-extra": "^10.0.1",
-    "gitly": "^2.1.6",
-    "globby": "11",
-    "minimist": "^1.2.5",
-    "modify-json-file": "^1.2.2",
-    "patch-package": "6.4.7",
-    "remark": "^13.0.0",
-    "string-dedent": "^2.0.0",
-    "true-case-path": "^2.2.1",
     "type-fest": "^2.12.0",
-    "typed-jsonfile": "^0.2.1",
     "typescript": "^4.6.2"
   }
 }
