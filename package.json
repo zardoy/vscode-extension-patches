@@ -1,7 +1,8 @@
 {
   "name": "vscode-patches",
   "scripts": {
-    "release": "ts-node -T ./extended-extensions/build-publish.ts --release",
+    "release": "ts-node ./builder/main.ts --release",
+    "dev-run": "ts-node -T ./builder/main.ts",
     "watch-patches": "node buildPatches.mjs dev",
     "build-patches": "node buildPatches.mjs"
   },
@@ -14,6 +15,7 @@
     "esbuild": "^0.14.25",
     "eslint": "^8.11.0",
     "eslint-config-zardoy": "^0.2.10",
+    "ts-node": "^10.7.0",
     "type-fest": "^2.12.0",
     "typescript": "^4.6.2"
   }
