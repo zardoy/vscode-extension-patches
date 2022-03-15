@@ -3,7 +3,8 @@
     "repoPrev": "johnsoncodehk/volar#03eaf26e0b1259ffa2b5690168a2d6a8baa81cbc",
     "location": "extensions/vscode-vue-language-features",
     "packageJson": {
-        "displayName": "Volar (Extended)",
+        "displayName": "Test Patched Extension 1",
+        "name": "testPatched1",
         "keywords": []
     }
 }
