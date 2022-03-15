@@ -61,7 +61,7 @@ const main = async () => {
     const basePath = join(__dirname, '..')
     const extensionsPath = join(basePath, 'extended-extensions/extensions')
     const extensionsList = await fs.promises.readdir(extensionsPath)
-    const globalLevelMetadata = await readJsonFile<GlobalMetadataJson>(join(__dirname, './metadata.json'))
+    const globalLevelMetadata = await readJsonFile<GlobalMetadataJson>(join(__dirname, './metadata.jsonc'))
     const argv = parseArgv<{
         // extensions only
         ext: string
