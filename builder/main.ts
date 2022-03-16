@@ -15,6 +15,7 @@ import dedent from 'string-dedent'
 import globby from 'globby'
 import { parsePatchFile } from './patch-package/types/patch/parse'
 import { executeEffects } from './patch-package/types/patch/apply'
+import { build } from 'esbuild'
 
 // git diff --cached > mypatch.patch
 
@@ -82,6 +83,7 @@ const main = async () => {
         const fromCache = (...path: string[]) => join(basePath, 'source-cache', extension, ...path)
         const fromDest = (...path: string[]) => join(basePath, 'dest', extension, ...path)
         const fromDestExtension = (...path: string[]) => fromDest(localLevelMetadata.location ?? '', ...path)
+        const fromTemp = (...path: string[]) => fromDest(basePath, 'temp', extension, ...path)
 
         console.log('Extension target:', fromDestExtension())
         if (!fs.existsSync(fromCache())) await gitly(localLevelMetadata.repo, fromCache(), {})
