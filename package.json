@@ -2,7 +2,7 @@
   "name": "vscode-patches",
   "scripts": {
     "release": "ts-node ./builder/main.ts --release",
-    "dev-run": "ts-node -T ./builder/main.ts",
+    "release-dev": "ts-node -T ./builder/main.ts --release",
     "watch-patches": "node buildPatches.mjs dev",
     "build-patches": "node buildPatches.mjs"
   },

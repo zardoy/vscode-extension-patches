@@ -39,6 +39,7 @@ importers:
       string-dedent: ^2.0.0
       true-case-path: ^2.2.1
       typed-jsonfile: ^0.2.1
+      vscode-manifest: ^0.0.4
     dependencies:
       '@types/fs-extra': 9.0.13
       '@types/minimist': 1.2.2
@@ -52,6 +53,7 @@ importers:
       string-dedent: 2.0.0
       true-case-path: 2.2.1
       typed-jsonfile: 0.2.1
+      vscode-manifest: 0.0.4
 
   modules/capsLockVimNavigation:
     specifiers:
@@ -3131,7 +3133,6 @@ packages:
 
   /lodash/4.17.21:
     resolution: {integrity: sha512-v2kDEe57lecTulaDIuNTPy3Ry4gLGJ6Z1O3vE1krgXZNrsQ+LFTGHVxVjcXPs17LhbZVGedAJv8XZ1tvj5FvSg==}
-    dev: true
 
   /longest-streak/2.0.4:
     resolution: {integrity: sha512-vM6rUVCVUJJt33bnmHiZEvr7wPT78ztX7rojL+LW51bHtLh6HTjx84LA5W4+oa6aKEJA7jJu5LR6vQRBpA5DVg==}
@@ -4731,6 +4732,12 @@ packages:
       - typescript
       - utf-8-validate
     dev: true
+
+  /vscode-manifest/0.0.4:
+    resolution: {integrity: sha512-DqeCLPd+rXIH3LQGICI6ZjW6aiNwQP7Kf1T+OUOa+G0288WizpEf9EYoQs0RSbq+b/LH0MlNmIrdM8Ea3bUsLA==}
+    dependencies:
+      lodash: 4.17.21
+    dev: false
 
   /vscode-manifest/0.0.8:
     resolution: {integrity: sha512-HX0dXboRrVXi0sSwoJpHt6WNKCIhWYw0EZ/alxSk/HVeQnmj9KkjLYFyN5IZnTKdRjarCzQQ2qQLoMaEE6oajg==}

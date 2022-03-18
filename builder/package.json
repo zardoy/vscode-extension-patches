@@ -4,14 +4,15 @@
         "@types/fs-extra": "^9.0.13",
         "@types/minimist": "^1.2.2",
         "fs-extra": "^10.0.1",
-        "globby": "11",
         "gitly": "^2.1.6",
+        "globby": "11",
         "minimist": "^1.2.5",
         "modify-json-file": "^1.2.2",
         "patch-package": "6.4.7",
         "remark": "^13.0.0",
         "string-dedent": "^2.0.0",
+        "true-case-path": "^2.2.1",
         "typed-jsonfile": "^0.2.1",
-        "true-case-path": "^2.2.1"
+        "vscode-manifest": "^0.0.4"
     }
 }

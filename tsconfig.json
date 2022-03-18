@@ -1,4 +1,4 @@
 {
     "extends": "@zardoy/tsconfig/node",
-    "include": ["modules/*", "extended-extensions/*"]
+    "include": ["extended-extensions/*", "builder"]
 }
