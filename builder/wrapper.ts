@@ -9,7 +9,6 @@ declare const __ORIGINAL_ENTRYPOINT__: string
 // actual code for every extension
 export const activate = context => {
     const originalExtension = vscode.extensions.getExtension(__ORIGINAL_EXTENSION_ID__)
-    // TODO wether to check isActive
     if (originalExtension) {
         void vscode.window.showErrorMessage('Disable original version in order this extension to work.')
         return

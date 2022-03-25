@@ -70,6 +70,7 @@ const main = async () => {
         ext: string
         dev: boolean
         release: boolean
+        noClean: boolean
     }>(process.argv.slice(2))
 
     // Stage: preparing
@@ -89,8 +90,10 @@ const main = async () => {
 
         console.log('Extension target:', fromDestExtension())
         if (!fs.existsSync(fromCache())) await gitly(localLevelMetadata.repo, fromCache(), {})
+        if (argv.noClean) await fsExtra.copy(fromDest('node_modules'), fromTemp('node_modules'))
         if (fs.existsSync(fromDest())) await fsExtra.rm(fromDest(), { recursive: true })
         await fsExtra.copy(fromCache(), fromDest())
+        if (argv.noClean) await fsExtra.copy(fromTemp('node_modules'), fromDest('node_modules'))
         // TODO make pkg from release-action
 
         const newEntrypoint = fromDestExtension('main.js')
