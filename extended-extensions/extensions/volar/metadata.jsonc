@@ -5,6 +5,9 @@
     "packageJson": {
         "displayName": "Test Patched Extension 1",
         "name": "testPatched1",
-        "keywords": []
+        "keywords": [],
+        "scripts": {
+            "build": "npm run build:node"
+        }
     }
 }

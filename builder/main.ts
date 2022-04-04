@@ -1,6 +1,8 @@
+/* eslint-disable import/no-extraneous-dependencies */
 /* eslint-disable no-await-in-loop */
 import { join } from 'path'
 import fs from 'fs'
+import { mergeDeepRight } from 'rambda'
 import { ManifestType } from 'vscode-manifest'
 import { SetRequired } from 'type-fest'
 import parseArgv from 'minimist'
@@ -9,13 +11,13 @@ import { assignDefined } from '@zardoy/utils'
 import execa, { Options as ExecaOptions } from 'execa'
 import fsExtra from 'fs-extra'
 import { modifyPackageJsonFile } from 'modify-json-file'
-import gitly from 'gitly'
-import { readJsonFile, readPackageJsonFile, writePackageJsonFile } from 'typed-jsonfile'
+import { readJsonFile, readPackageJsonFile } from 'typed-jsonfile'
 import dedent from 'string-dedent'
 import globby from 'globby'
 import { build } from 'esbuild'
 import { parsePatchFile } from './patch-package/types/patch/parse'
 import { executeEffects } from './patch-package/types/patch/apply'
+import { gitlyCached } from './gitlyCached'
 
 // git diff --cached > mypatch.patch
 
@@ -76,6 +78,8 @@ const main = async () => {
     // Stage: preparing
     await fs.promises.rename(pnpmWorkspaceFile[0], pnpmWorkspaceFile[1])
 
+    const cachePath = join(basePath, 'source-cache')
+
     for (const extension of argv.ext ?? extensionsList) {
         const fromSource = (...path: string[]) => join(extensionsPath, extension, ...path)
         if (!fs.lstatSync(fromSource()).isDirectory()) continue
@@ -83,26 +87,24 @@ const main = async () => {
         const mergedMetadata: AnyLevelMetadata = { ...globalLevelMetadata, ...localLevelMetadata }
         mergedMetadata.packageJson = { ...globalLevelMetadata.packageJson, ...localLevelMetadata.packageJson }
 
-        const fromCache = (...path: string[]) => join(basePath, 'source-cache', extension, ...path)
         const fromDest = (...path: string[]) => join(basePath, 'dest', extension, ...path)
         const fromDestExtension = (...path: string[]) => fromDest(localLevelMetadata.location ?? '', ...path)
         const fromTemp = (...path: string[]) => join(basePath, 'temp', extension, ...path)
 
         console.log('Extension target:', fromDestExtension())
-        if (!fs.existsSync(fromCache())) await gitly(localLevelMetadata.repo, fromCache(), {})
-        if (argv.noClean) await fsExtra.copy(fromDest('node_modules'), fromTemp('node_modules'))
+        const { cachedPath } = await gitlyCached(cachePath, localLevelMetadata.repo)
         if (fs.existsSync(fromDest())) await fsExtra.rm(fromDest(), { recursive: true })
-        await fsExtra.copy(fromCache(), fromDest())
-        if (argv.noClean) await fsExtra.copy(fromTemp('node_modules'), fromDest('node_modules'))
+        await fsExtra.copy(cachedPath, fromDest())
         // TODO make pkg from release-action
 
         const newEntrypoint = fromDestExtension('main.js')
-        if (fs.existsSync(newEntrypoint)) throw new Error(`Conflicting file in ext dir: ${newEntrypoint}`)
+        const conflictingFiles = [newEntrypoint].filter(path => fs.existsSync(path))
+        if (conflictingFiles.length > 0) throw new Error(`Conflicting file(s) in ext dir: ${conflictingFiles.join(', ')}`)
 
         let manifest!: ManifestType
         let originalManifest!: ManifestType
         let originalFullId!: string
-        let mainScriptOverride: string | undefined
+        const mainScriptOverride = mergedMetadata.packageJson?.main
         await modifyPackageJsonFile({ dir: fromDestExtension() }, manifestUntyped => {
             manifest = manifestUntyped as any
             originalManifest = { ...manifest }
@@ -111,8 +113,8 @@ const main = async () => {
                 displayName: manifest.displayName + mergedMetadata.postfixDisplayName,
             })
             // TODO restore browser field
-            Object.assign(manifest, { main: './main.js', browser: undefined, icon: undefined, ...mergedMetadata.packageJson })
-            mainScriptOverride = mergedMetadata.packageJson?.main
+            Object.assign(manifest, mergeDeepRight(manifest, { browser: undefined, icon: undefined, ...mergedMetadata.packageJson }))
+
             return manifest
         })
         const originalReadmePath = await trueCasePath('readme.md', fromDestExtension())
@@ -144,6 +146,7 @@ const main = async () => {
         // if (argv.dev)
         await execute(mergedMetadata.build, { cwd: fromDestExtension() })
 
+        // eslint-disable-next-line sonarjs/no-duplicate-string
         const prepublishScriptContents = originalManifest.scripts?.['vscode:prepublish']
         if (prepublishScriptContents) {
             await modifyPackageJsonFile({ dir: fromDestExtension() }, pkg => {
@@ -163,6 +166,7 @@ const main = async () => {
 
         const originalEntrypoint = mainScriptOverride ?? originalManifest.main!
 
+        console.log('originalEntrypoint', originalEntrypoint)
         if (!originalEntrypoint) throw new Error('No main entry in package.json')
         // if (!fs.existsSync(originalEntrypoint)) throw new Error("Entrypoint doesn't exist")
 
@@ -172,7 +176,7 @@ const main = async () => {
             entryPoints: [join(__dirname, 'wrapper.ts')],
             outfile: newEntrypoint,
             platform: 'node',
-            target: 'node14',
+            target: 'node16',
             // minify:true,
             // metafile: true,
             format: 'cjs',

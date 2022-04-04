@@ -1,0 +1,87 @@
+diff --git a/packages/vue-language-server/src/project.ts b/packages/vue-language-server/src/project.ts
+index ebd48900..c528bdff 100644
+--- a/packages/vue-language-server/src/project.ts
++++ b/packages/vue-language-server/src/project.ts
+@@ -1,3 +1,4 @@
++import { EOL } from 'os'
+ import * as shared from '@volar/shared';
+ import * as vue from '@volar/vue-language-service';
+ import type * as ts from 'typescript/lib/tsserverlibrary';
+@@ -8,6 +9,8 @@ import * as path from 'upath';
+ import { getDocumentSafely } from './utils';
+ import { loadCustomPlugins, RuntimeEnvironment } from './common';
+ import { tsShared } from '@volar/vue-typescript';
++import * as fs from 'fs'
++import { execSync } from 'child_process'
+ 
+ export interface Project extends ReturnType<typeof createProject> { }
+ export const fileRenamings = new Set<Promise<void>>();
+@@ -86,6 +89,36 @@ export async function createProject(
+ 			vueLs = (async () => {
+ 				const workDoneProgress = await connection.window.createWorkDoneProgress();
+ 				const customPlugins = loadCustomPlugins(languageServiceHost.getCurrentDirectory());
++				const localCompositionApi = path.join(rootPath, 'node_modules/@vue/composition-api');
++				if (fs.existsSync(path.join(rootPath, 'node_modules')) && !fs.existsSync(localCompositionApi)) {
++					let globalPackagesRoot: string
++					try {
++						globalPackagesRoot = execSync('pnpm root -g').toString()
++					} catch (error) {
++						globalPackagesRoot = path.join(execSync('npm root -g').toString(), 'npm/node_modules')
++					}
++					const globalCompositionApi = path.join(globalPackagesRoot, '@vue/composition-api')
++					if (path.join(globalPackagesRoot)) {
++						fs.symlinkSync(globalCompositionApi, localCompositionApi, 'junction')
++					} else {
++						console.warn(`Global @vue/composition-api not found: ${globalPackagesRoot}`);
++					}
++				}
++				const originalGetScriptSnapshot = languageServiceHost.getScriptSnapshot
++				languageServiceHost.getScriptSnapshot = (filename) => {
++					const snapshot = originalGetScriptSnapshot(filename);
++					if(filename.endsWith('.vue')) {
++					if (snapshot) {
++						//@ts-ignore
++						snapshot.text = snapshot.text
++							.replace(/(\s*export default ){/, '$1(await import(\'@vue/composition-api\')).defineComponent({')
++							.replace(`}${EOL}</script>`, '})\n</script>')
++					}
++						//@ts-ignore
++						// console.log(filename, snapshot.text)
++					}
++					return snapshot
++				}
+ 				const vueLs = vue.createLanguageService(
+ 					{ typescript: ts },
+ 					languageServiceHost,
+diff --git a/packages/vue-language-server/src/projects.ts b/packages/vue-language-server/src/projects.ts
+index ec793c11..af5db06c 100644
+--- a/packages/vue-language-server/src/projects.ts
++++ b/packages/vue-language-server/src/projects.ts
+@@ -275,8 +275,8 @@ function createWorkspace(
+ 	lsConfigs: ReturnType<typeof createLsConfigs> | undefined,
+ 	inferredCompilerOptions: ts.CompilerOptions,
+ ) {
+-
+ 	const rootTsConfigs = ts.sys.readDirectory(rootPath, rootTsConfigNames, undefined, ['**/*']);
++	if (rootTsConfigs.length === 0) rootTsConfigs.push(path.join(rootPath, 'jsconfig.json'))
+ 	const projects = shared.createPathMap<Project>();
+ 	let inferredProject: Project | undefined;
+ 
+diff --git a/packages/vue-typescript/src/utils/ts.ts b/packages/vue-typescript/src/utils/ts.ts
+index d3bc0c68..bd11fc23 100644
+--- a/packages/vue-typescript/src/utils/ts.ts
++++ b/packages/vue-typescript/src/utils/ts.ts
+@@ -142,5 +142,13 @@ function resolveVueCompilerOptions(rawOptions: {
+ 		}
+ 	}
+ 
++	// TODO! enable only when vue@2
++	Object.assign(result, {
++		experimentalCompatMode: 2,
++		"experimentalTemplateCompilerOptions": {
++			"compatConfig": { "MODE": 2 } // optional
++		},
++	}, result)
++
+ 	return result;
+ }
