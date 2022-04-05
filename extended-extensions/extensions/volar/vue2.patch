@@ -59,7 +59,6 @@ index ebd48900..a986ae4c 100644
  				);
  				vueLs.__internal__.tsRuntime.onInitProgress(p => {
  					if (p === 0) {
-
 diff --git a/packages/vue-language-service/src/languageService.ts b/packages/vue-language-service/src/languageService.ts
 index 59e50519..9315796f 100644
 --- a/packages/vue-language-service/src/languageService.ts
