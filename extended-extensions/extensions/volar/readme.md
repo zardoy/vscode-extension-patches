@@ -5,4 +5,4 @@ This is highly experimental version with a lot of benefits to make DX even bette
 Featuring:
 
 - Class links / references always work (even without `scope` attribute) [#1038](https://github.com/johnsoncodehk/volar/issues/1038)
-- Support for Vue@2 options API without `defineComponent` or configuring jsconfig (limitation: still requires basic jsconfig.json creation)
+- (WIP) Support for Vue@2 options API without `defineComponent` or configuring jsconfig (limitation: still requires basic jsconfig.json creation)
