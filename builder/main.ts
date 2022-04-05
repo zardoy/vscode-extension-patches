@@ -97,9 +97,15 @@ const main = async () => {
         await fsExtra.copy(cachedPath, fromDest())
         // TODO make pkg from release-action
 
-        const newEntrypoint = fromDestExtension('main.js')
-        const conflictingFiles = [newEntrypoint].filter(path => fs.existsSync(path))
+        const newEntrypoint = 'main.js'
+        const conflictingFiles = [newEntrypoint].filter(path => fs.existsSync(fromDestExtension(path)))
         if (conflictingFiles.length > 0) throw new Error(`Conflicting file(s) in ext dir: ${conflictingFiles.join(', ')}`)
+        // const vscIgnoreFile = fromDestExtension('.vscodeignore')
+        // if (fs.existsSync(vscIgnoreFile)) {
+        //     let oldIgnore = await fs.promises.readFile(vscIgnoreFile, 'utf-8')
+        //     oldIgnore += '\n!main.js'
+        //     await fs.promises.writeFile(vscIgnoreFile, oldIgnore, 'utf-8')
+        // }
 
         let manifest!: ManifestType
         let originalManifest!: ManifestType
@@ -113,7 +119,16 @@ const main = async () => {
                 displayName: manifest.displayName + mergedMetadata.postfixDisplayName,
             })
             // TODO restore browser field
-            Object.assign(manifest, mergeDeepRight(manifest, { browser: undefined, icon: undefined, ...mergedMetadata.packageJson }))
+            Object.assign(
+                manifest,
+                mergeDeepRight(manifest, {
+                    browser: undefined,
+                    main: newEntrypoint,
+                    repository: process.env.GITHUB_REPOSITORY ?? 'd/d',
+                    icon: undefined,
+                    ...mergedMetadata.packageJson,
+                }),
+            )
 
             return manifest
         })
@@ -164,9 +179,9 @@ const main = async () => {
         // const entrypoint = fromTemp('entrypoint.ts');
         // await fsExtra.copyFile(join(__dirname, 'wrapper.ts'), entrypoint)
 
-        const originalEntrypoint = mainScriptOverride ?? originalManifest.main!
+        let originalEntrypoint = mainScriptOverride ?? originalManifest.main!
+        if (!originalEntrypoint.startsWith('./')) originalEntrypoint = `./${originalEntrypoint}`
 
-        console.log('originalEntrypoint', originalEntrypoint)
         if (!originalEntrypoint) throw new Error('No main entry in package.json')
         // if (!fs.existsSync(originalEntrypoint)) throw new Error("Entrypoint doesn't exist")
 
@@ -174,7 +189,7 @@ const main = async () => {
             bundle: true,
             // entryPoints: [entrypoint],
             entryPoints: [join(__dirname, 'wrapper.ts')],
-            outfile: newEntrypoint,
+            outfile: fromDestExtension(newEntrypoint),
             platform: 'node',
             target: 'node16',
             // minify:true,

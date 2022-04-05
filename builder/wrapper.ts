@@ -15,5 +15,5 @@ export const activate = context => {
     }
 
     __INJECT__ENTRYPOINT__ && require(__INJECT__ENTRYPOINT__)
-    require(__ORIGINAL_ENTRYPOINT__)
+    require(__ORIGINAL_ENTRYPOINT__).activate(context)
 }

@@ -1,77 +1,193 @@
+diff --git a/extensions/vscode-vue-language-features/scripts/build-node.js b/extensions/vscode-vue-language-features/scripts/build-node.js
+index 3e9b974a..7d6ae9a7 100644
+--- a/extensions/vscode-vue-language-features/scripts/build-node.js
++++ b/extensions/vscode-vue-language-features/scripts/build-node.js
+@@ -6,23 +6,39 @@ require('esbuild').build({
+         client: './out/nodeClientMain.js',
+         server: './node_modules/@volar/vue-language-server/out/node.js',
+     },
++    mainFields: ['module', 'main'],
+     bundle: true,
+     outdir: './dist/node',
+     external: ['vscode'],
+     format: 'cjs',
+     platform: 'node',
+     tsconfig: '../../tsconfig.build.json',
+-    define: { 'process.env.NODE_ENV': '"production"' },
++    define: {
++        'process.env.NODE_ENV': '"production"',
++    },
+     minify: process.argv.includes('--minify'),
+     watch: process.argv.includes('--watch'),
++    metafile: true,
+     plugins: [{
+         name: 'umd2esm',
+         setup(build) {
+-            build.onResolve({ filter: /^(vscode-.*|estree-walker|jsonc-parser)/ }, args => {
+-                const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
+-                const pathEsm = pathUmdMay.replace('/umd/', '/esm/')
+-                return { path: pathEsm }
++            build.onResolve({ filter: /VIRTUAL_SCRIPT_CONTENTS/ }, () => {
++                return {
++                    namespace: 'VIRTUAL_SCRIPT_CONTENTS',
++                    path: 'VIRTUAL_SCRIPT_CONTENTS',
++                }
++            })
++            build.onLoad({ filter: /.*/, namespace: 'VIRTUAL_SCRIPT_CONTENTS' }, () => {
++                return {
++                    contents: require('fs').readFileSync(require('path').join(__dirname, '../../../packages/vue-typescript/src/virtualDefineComponent.d.ts'), 'utf-8'),
++                    loader: 'text'
++                }
+             })
++            // build.onResolve({ filter: /^(vscode-.*|estree-walker|jsonc-parser)/ }, args => {
++            //     const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
++            //     const pathEsm = pathUmdMay.replace('/umd/', '/esm/')
++            //     return { path: pathEsm }
++            // })
+             build.onResolve({ filter: /^\@vue\/compiler-sfc$/ }, args => {
+                 const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
+                 const pathEsm = pathUmdMay.replace('compiler-sfc.cjs.js', 'compiler-sfc.esm-browser.js')
 diff --git a/packages/vue-language-server/src/project.ts b/packages/vue-language-server/src/project.ts
-index ebd48900..c528bdff 100644
+index ebd48900..a986ae4c 100644
 --- a/packages/vue-language-server/src/project.ts
 +++ b/packages/vue-language-server/src/project.ts
-@@ -1,3 +1,4 @@
-+import { EOL } from 'os'
- import * as shared from '@volar/shared';
- import * as vue from '@volar/vue-language-service';
- import type * as ts from 'typescript/lib/tsserverlibrary';
-@@ -8,6 +9,8 @@ import * as path from 'upath';
- import { getDocumentSafely } from './utils';
- import { loadCustomPlugins, RuntimeEnvironment } from './common';
- import { tsShared } from '@volar/vue-typescript';
-+import * as fs from 'fs'
-+import { execSync } from 'child_process'
- 
- export interface Project extends ReturnType<typeof createProject> { }
- export const fileRenamings = new Set<Promise<void>>();
-@@ -86,6 +89,36 @@ export async function createProject(
- 			vueLs = (async () => {
- 				const workDoneProgress = await connection.window.createWorkDoneProgress();
- 				const customPlugins = loadCustomPlugins(languageServiceHost.getCurrentDirectory());
-+				const localCompositionApi = path.join(rootPath, 'node_modules/@vue/composition-api');
-+				if (fs.existsSync(path.join(rootPath, 'node_modules')) && !fs.existsSync(localCompositionApi)) {
-+					let globalPackagesRoot: string
-+					try {
-+						globalPackagesRoot = execSync('pnpm root -g').toString()
-+					} catch (error) {
-+						globalPackagesRoot = path.join(execSync('npm root -g').toString(), 'npm/node_modules')
-+					}
-+					const globalCompositionApi = path.join(globalPackagesRoot, '@vue/composition-api')
-+					if (path.join(globalPackagesRoot)) {
-+						fs.symlinkSync(globalCompositionApi, localCompositionApi, 'junction')
-+					} else {
-+						console.warn(`Global @vue/composition-api not found: ${globalPackagesRoot}`);
-+					}
-+				}
-+				const originalGetScriptSnapshot = languageServiceHost.getScriptSnapshot
-+				languageServiceHost.getScriptSnapshot = (filename) => {
-+					const snapshot = originalGetScriptSnapshot(filename);
-+					if(filename.endsWith('.vue')) {
-+					if (snapshot) {
-+						//@ts-ignore
-+						snapshot.text = snapshot.text
-+							.replace(/(\s*export default ){/, '$1(await import(\'@vue/composition-api\')).defineComponent({')
-+							.replace(`}${EOL}</script>`, '})\n</script>')
-+					}
-+						//@ts-ignore
-+						// console.log(filename, snapshot.text)
-+					}
-+					return snapshot
-+				}
- 				const vueLs = vue.createLanguageService(
- 					{ typescript: ts },
- 					languageServiceHost,
-diff --git a/packages/vue-language-server/src/projects.ts b/packages/vue-language-server/src/projects.ts
-index ec793c11..af5db06c 100644
---- a/packages/vue-language-server/src/projects.ts
-+++ b/packages/vue-language-server/src/projects.ts
-@@ -275,8 +275,8 @@ function createWorkspace(
- 	lsConfigs: ReturnType<typeof createLsConfigs> | undefined,
- 	inferredCompilerOptions: ts.CompilerOptions,
+@@ -127,6 +127,7 @@ export async function createProject(
+ 							attr: options.languageFeatures!.completion!.defaultAttrNameCase,
+ 						};
+ 					} : undefined,
++					rootPath
+ 				);
+ 				vueLs.__internal__.tsRuntime.onInitProgress(p => {
+ 					if (p === 0) {
+
+diff --git a/packages/vue-language-service/src/languageService.ts b/packages/vue-language-service/src/languageService.ts
+index 59e50519..9315796f 100644
+--- a/packages/vue-language-service/src/languageService.ts
++++ b/packages/vue-language-service/src/languageService.ts
+@@ -93,6 +93,7 @@ export function createLanguageService(
+ 		tag: 'both' | 'kebabCase' | 'pascalCase',
+ 		attr: 'kebabCase' | 'camelCase',
+ 	}>,
++	rootPath?: string
  ) {
--
- 	const rootTsConfigs = ts.sys.readDirectory(rootPath, rootTsConfigNames, undefined, ['**/*']);
-+	if (rootTsConfigs.length === 0) rootTsConfigs.push(path.join(rootPath, 'jsconfig.json'))
- 	const projects = shared.createPathMap<Project>();
- 	let inferredProject: Project | undefined;
+ 
+ 	setCurrentConfigurationHost(configurationHost); // TODO
+@@ -105,6 +106,7 @@ export function createLanguageService(
+ 		getCssClasses: ef => stylesheetExtra.getCssClasses(ef),
+ 		vueLsHost: vueLsHost,
+ 		isTsPlugin: false,
++		rootPath
+ 	});
+ 	const vueDocuments = parseVueDocuments(tsRuntime.vueFiles);
+ 	const tsSettings = getTsSettings(configurationHost);
+diff --git a/packages/vue-typescript/src/typescriptRuntime.ts b/packages/vue-typescript/src/typescriptRuntime.ts
+index 7d2d556e..d2487162 100644
+--- a/packages/vue-typescript/src/typescriptRuntime.ts
++++ b/packages/vue-typescript/src/typescriptRuntime.ts
+@@ -7,6 +7,7 @@ import { LanguageServiceHost, VueCompilerOptions } from './types';
+ import * as localTypes from './utils/localTypes';
+ import { injectCacheLogicToLanguageServiceHost } from './utils/ts';
+ import { createVueFile, EmbeddedFile } from './vueFile';
++import { EOL } from 'os'
+ import { createVueFiles } from './vueFiles';
+ 
+ export interface VueLanguagePlugin {
+@@ -27,6 +28,7 @@ export function createTypeScriptRuntime(options: {
+     vueLsHost: LanguageServiceHost,
+     isTsPlugin?: boolean,
+     isVueTsc?: boolean,
++    rootPath?: string
+ }) {
+ 
+     const { typescript: ts } = options;
+@@ -217,7 +219,62 @@ export function createTypeScriptRuntime(options: {
+ 
+         const tsHost = new Proxy<ts.LanguageServiceHost>(_tsHost as ts.LanguageServiceHost, {
+             get: (target, property: keyof ts.LanguageServiceHost) => {
+-                return target[property] || options.vueLsHost[property];
++                const method = target[property] || options.vueLsHost[property]
++                // TODO investigate template compl!!!
++                //@ts-ignore
++                return method && function(...args) {
++                    const virtualScript = path.posix.join(options.rootPath!, 'vue2-virtual-shim.d.ts');
++                    if (property === 'getScriptSnapshot' && args[0] === virtualScript) {
++                        let virtualScriptContents;
++                        try {
++                            virtualScriptContents = require('VIRTUAL_SCRIPT_CONTENTS')
++                        } catch (error) {
++                            // dev
++                            virtualScriptContents = ts.sys.readFile(path.join(__dirname, '../src/virtualDefineComponent.d.ts'))!
++                        }
++                        return ts.ScriptSnapshot.fromString(virtualScriptContents)
++                    }
++                    //@ts-ignore
++                    const value = method(...args);
++                    // if (property === 'getScriptSnapshot') {
++                    //     console.log(value)
++                    // }
++                    if (property === 'getScriptFileNames') {
++                        //@ts-ignore
++                        value.push(virtualScript)
++                    }
++                    if (property === 'getScriptSnapshot') {
++                        const filename = args[0]
++                        if (filename.endsWith('.vue.js') && value) {
++                            let wrapped = false
++                            //@ts-ignore
++                            value.text = value.text.replace(/(\s*export default ){/, (_, g1) => {
++                                wrapped = true
++                                return `${g1}virtualDefineComponent({`;
++                                // return `${g1}(await import(\'@vue/composition-api\')).defineComponent({`;
++                            })
++                            if (wrapped) {
++                                //@ts-ignore
++                                const lines = value.text.split('\n');
++                                const patchIndex = [...lines].reverse().findIndex((str: string) => str.trim().match(/};?/));
++                                if (patchIndex !== -1) {
++                                    lines[lines.length - patchIndex - 1] = '})'
++                                    //@ts-ignore
++                                    value.text = lines.join('\n')
++                                } else {
++                                    console.warn('Error line patching');
++                                }
++                                console.log('Patched script:', filename)
++                            }
++                        }
++                    }
++                    // if (['getScriptFileNames', 'fileExists', 'readFile'].includes(property)) console.log(property, args, value)
++                    //@ts-ignore
++                    // if (args.some((value) => value?.includes?.('vue2-virtual-shim')) || (typeof value === 'string' ? [value] : Array.isArray(value) ? value : []).some((value) => value?.includes?.('vue2-virtual-shim'))) {
++                    //     console.log(property, args, value)
++                    // }
++                    return value
++                }
+             },
+         });
  
 diff --git a/packages/vue-typescript/src/utils/ts.ts b/packages/vue-typescript/src/utils/ts.ts
-index d3bc0c68..bd11fc23 100644
+index d3bc0c68..cbab6920 100644
 --- a/packages/vue-typescript/src/utils/ts.ts
 +++ b/packages/vue-typescript/src/utils/ts.ts
-@@ -142,5 +142,13 @@ function resolveVueCompilerOptions(rawOptions: {
+@@ -92,7 +92,17 @@ export function createParsedCommandLine(
+ } {
+ 
+ 	const tsConfigPath = ts.sys.resolvePath(tsConfig);
+-	const config = ts.readJsonConfigFile(tsConfigPath, ts.sys.readFile);
++	const config = ts.readJsonConfigFile(tsConfigPath, (...args) => {
++		if(extendsSet.size === 0) {
++			const result = ts.sys.readFile(...args)
++			if (!result) return
++			const parsed = JSON.parse(result!.toString());
++			if (!parsed.include) parsed.include = ['src']
++			parsed.include.push('vue2-virtual-shim.d.ts')
++			return JSON.stringify(parsed)
++		}
++		return ts.sys.readFile(...args)
++	});
+ 	const content = ts.parseJsonSourceFileConfigFileContent(config, parseConfigHost, path.dirname(tsConfigPath), {}, path.basename(tsConfigPath));
+ 	content.options.outDir = undefined; // TODO: patching ts server broke with outDir + rootDir + composite/incremental
+ 
+@@ -142,5 +152,13 @@ function resolveVueCompilerOptions(rawOptions: {
  		}
  	}
  
@@ -85,3 +201,518 @@ index d3bc0c68..bd11fc23 100644
 +
  	return result;
  }
+diff --git a/packages/vue-typescript/src/virtualDefineComponent.d.ts b/packages/vue-typescript/src/virtualDefineComponent.d.ts
+new file mode 100644
+index 00000000..4aa4ba93
+--- /dev/null
++++ b/packages/vue-typescript/src/virtualDefineComponent.d.ts
+@@ -0,0 +1,509 @@
++type Vue$1 = import('vue').default
++type VNode = import('vue').VNode
++type VueConstructor = import('vue').VueConstructor
++type ComponentOptions = import('vue').ComponentOptions
++type AsyncComponent = import('vue').AsyncComponent
++type VNodeDirective = import('vue').VNodeDirective
++type CreateElement = import('vue').CreateElement
++
++type Data = {
++    [key: string]: unknown;
++};
++
++type ComponentPropsOptions<P = Data> = ComponentObjectPropsOptions<P> | string[];
++type ComponentObjectPropsOptions<P = Data> = {
++    [K in keyof P]: Prop<P[K]> | null;
++};
++type Prop<T, D = T> = PropOptions<T, D> | PropType<T>;
++type DefaultFactory<T> = () => T | null | undefined;
++interface PropOptions<T = any, D = T> {
++    type?: PropType<T> | true | null;
++    required?: boolean;
++    default?: D | DefaultFactory<D> | null | undefined | object;
++    validator?(value: unknown): boolean;
++}
++type PropType<T> = PropConstructor<T> | PropConstructor<T>[];
++type PropConstructor<T> = {
++    new (...args: any[]): T & object;
++} | {
++    (): T;
++} | {
++    new (...args: string[]): Function;
++};
++type RequiredKeys<T> = {
++    [K in keyof T]: T[K] extends {
++        required: true;
++    } | {
++        default: any;
++    } | BooleanConstructor | {
++        type: BooleanConstructor;
++    } ? K : never;
++}[keyof T];
++type OptionalKeys<T> = Exclude<keyof T, RequiredKeys<T>>;
++type ExtractFunctionPropType<T extends Function, TArgs extends Array<any> = any[], TResult = any> = T extends (...args: TArgs) => TResult ? T : never;
++type ExtractCorrectPropType<T> = T extends Function ? ExtractFunctionPropType<T> : Exclude<T, Function>;
++type InferPropType<T> = T extends null ? any : T extends {
++    type: null | true;
++} ? any : T extends ObjectConstructor | {
++    type: ObjectConstructor;
++} ? Record<string, any> : T extends BooleanConstructor | {
++    type: BooleanConstructor;
++} ? boolean : T extends DateConstructor | {
++    type: DateConstructor;
++} ? Date : T extends FunctionConstructor ? Function : T extends Prop<infer V, infer D> ? unknown extends V ? D extends null | undefined ? V : D : ExtractCorrectPropType<V> : T;
++type ExtractPropTypes<O> = O extends object ? {
++    [K in RequiredKeys<O>]: InferPropType<O[K]>;
++} & {
++    [K in OptionalKeys<O>]?: InferPropType<O[K]>;
++} : {
++    [K in string]: any;
++};
++type DefaultKeys<T> = {
++    [K in keyof T]: T[K] extends {
++        default: any;
++    } | BooleanConstructor | {
++        type: BooleanConstructor;
++    } ? T[K] extends {
++        type: BooleanConstructor;
++        required: true;
++    } ? never : K : never;
++}[keyof T];
++type ExtractDefaultPropTypes<O> = O extends object ? {
++    [K in DefaultKeys<O>]: InferPropType<O[K]>;
++} : {};
++
++type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never;
++
++type Slot = (...args: any[]) => VNode[];
++type InternalSlots = {
++    [name: string]: Slot | undefined;
++};
++type ObjectEmitsOptions = Record<string, ((...args: any[]) => any) | null>;
++type EmitsOptions = ObjectEmitsOptions | string[];
++type EmitFn<Options = ObjectEmitsOptions, Event extends keyof Options = keyof Options, ReturnType extends void | Vue$1 = void> = Options extends Array<infer V> ? (event: V, ...args: any[]) => ReturnType : {} extends Options ? (event: string, ...args: any[]) => ReturnType : UnionToIntersection<{
++    [key in Event]: Options[key] extends (...args: infer Args) => any ? (event: key, ...args: Args) => ReturnType : (event: key, ...args: any[]) => ReturnType;
++}[Event]>;
++type ComponentRenderEmitFn<Options = ObjectEmitsOptions, Event extends keyof Options = keyof Options, T extends Vue$1 | void = void> = EmitFn<Options, Event, T>;
++type Slots = Readonly<InternalSlots>;
++interface SetupContext<E extends EmitsOptions = {}> {
++    attrs: Data;
++    slots: Slots;
++    emit: EmitFn<E>;
++    /**
++    * @deprecated not available in Vue 2
++    */
++    expose: (exposed?: Record<string, any>) => void;
++    /**
++    * @deprecated not available in Vue 3
++    */
++    readonly parent: ComponentInstance | null;
++    /**
++    * @deprecated not available in Vue 3
++    */
++    readonly root: ComponentInstance;
++    /**
++    * @deprecated not available in Vue 3
++    */
++    readonly listeners: {
++        [key in string]?: Function;
++    };
++    /**
++    * @deprecated not available in Vue 3
++    */
++    readonly refs: {
++        [key: string]: Vue | Element | Vue[] | Element[];
++    };
++}
++/**
++* We expose a subset of properties on the internal instance as they are
++* useful for advanced external libraries and tools.
++*/
++interface ComponentInternalInstance {
++    uid: number;
++    type: Record<string, unknown>;
++    parent: ComponentInternalInstance | null;
++    root: ComponentInternalInstance;
++    /**
++    * Vnode representing this component in its parent's vdom tree
++    */
++    vnode: VNode;
++    /**
++    * Root vnode of this component's own vdom tree
++    */
++    /**
++    * The reactive effect for rendering and patching the component. Callable.
++    */
++    update: Function;
++    data: Data;
++    props: Data;
++    attrs: Data;
++    refs: Data;
++    emit: EmitFn;
++    slots: InternalSlots;
++    emitted: Record<string, boolean> | null;
++    proxy: ComponentInstance;
++    isMounted: boolean;
++    isUnmounted: boolean;
++    isDeactivated: boolean;
++}
++
++type EmitsToProps<T extends EmitsOptions> = T extends string[] ? {
++    [K in string & `on${Capitalize<T[number]>}`]?: (...args: any[]) => any;
++} : T extends ObjectEmitsOptions ? {
++    [K in string & `on${Capitalize<string & keyof T>}`]?: K extends `on${infer C}` ? T[Uncapitalize<C>] extends null ? (...args: any[]) => any : (...args: T[Uncapitalize<C>] extends (...args: infer P) => any ? P : never) => any : never;
++} : {};
++type ComponentInstance = InstanceType<VueConstructor>;
++type ComponentRenderProxy<P = {}, // props type extracted from props option
++B = {}, // raw bindings returned from setup()
++D = {}, // return from data()
++C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, PublicProps = P, Defaults = {}, MakeDefaultsOptional extends boolean = false> = {
++    $data: D;
++    $props: Readonly<MakeDefaultsOptional extends true ? Partial<Defaults> & Omit<P & PublicProps, keyof Defaults> : P & PublicProps>;
++    $attrs: Record<string, string>;
++    $emit: ComponentRenderEmitFn<Emits, keyof Emits, ComponentRenderProxy<P, B, D, C, M, Mixin, Extends, Emits, PublicProps, Defaults, MakeDefaultsOptional>>;
++} & Readonly<P> & ShallowUnwrapRef<B> & D & M & ExtractComputedReturns<C> & Omit<Vue$1, '$data' | '$props' | '$attrs' | '$emit'>;
++type VueConstructorProxy<PropsOptions, RawBindings, Data, Computed extends ComputedOptions, Methods extends MethodOptions, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, Props = ExtractPropTypes<PropsOptions> & ({} extends Emits ? {} : EmitsToProps<Emits>)> = Omit<VueConstructor, never> & {
++    new (...args: any[]): ComponentRenderProxy<Props, ShallowUnwrapRef<RawBindings>, Data, Computed, Methods, Mixin, Extends, Emits, Props, ExtractDefaultPropTypes<PropsOptions>, true>;
++};
++type DefaultData<V> = object | ((this: V) => object);
++type DefaultMethods<V> = {
++    [key: string]: (this: V, ...args: any[]) => any;
++};
++type DefaultComputed = {
++    [key: string]: any;
++};
++type VueProxy<PropsOptions, RawBindings, Data = DefaultData<Vue$1>, Computed extends ComputedOptions = DefaultComputed, Methods extends MethodOptions = DefaultMethods<Vue$1>, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> = ComponentOptions<Vue$1, ShallowUnwrapRef<RawBindings> & Data, Methods, Computed, PropsOptions, ExtractPropTypes<PropsOptions>> & VueConstructorProxy<PropsOptions, RawBindings, Data, Computed, Methods, Mixin, Extends, Emits>;
++type ComponentPublicInstance<P = {}, // props type extracted from props option
++B = {}, // raw bindings returned from setup()
++D = {}, // return from data()
++C extends ComputedOptions = {}, M extends MethodOptions = {}, E extends EmitsOptions = {}, PublicProps = P, Defaults = {}, MakeDefaultsOptional extends boolean = false> = {
++    $: ComponentInternalInstance;
++    $data: D;
++    $props: MakeDefaultsOptional extends true ? Partial<Defaults> & Omit<P & PublicProps, keyof Defaults> : P & PublicProps;
++    $attrs: Data;
++    $refs: Data;
++    $slots: Slots;
++    $root: ComponentPublicInstance | null;
++    $parent: ComponentPublicInstance | null;
++    $emit: EmitFn<E>;
++    $el: any;
++    $forceUpdate: () => void;
++    $nextTick: typeof nextTick;
++    $watch(source: string | Function, cb: Function, options?: WatchOptions): WatchStopHandle;
++} & P & ShallowUnwrapRef<B> & UnwrapNestedRefs<D> & ExtractComputedReturns<C> & M;
++
++type ComputedGetter$1<T> = (ctx?: any) => T;
++type ComputedSetter$1<T> = (v: T) => void;
++interface WritableComputedOptions$1<T> {
++    get: ComputedGetter$1<T>;
++    set: ComputedSetter$1<T>;
++}
++type ComputedOptions = Record<string, ComputedGetter$1<any> | WritableComputedOptions$1<any>>;
++interface MethodOptions {
++    [key: string]: Function;
++}
++type SetupFunction<Props, RawBindings = {}, Emits extends EmitsOptions = {}> = (this: void, props: Readonly<Props>, ctx: SetupContext<Emits>) => RawBindings | (() => VNode | null) | void;
++interface ComponentOptionsBase<Props, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> extends Omit<ComponentOptions<Vue$1, D, M, C, Props>, 'data' | 'computed' | 'method' | 'setup' | 'props'> {
++    [key: string]: any;
++    components?: {
++        [component: any]: any
++    },
++    mixins?: any[],
++    data?: (this: Props & Vue$1, vm: Props) => D;
++    computed?: C;
++    methods?: M;
++}
++type ExtractComputedReturns<T extends any> = {
++    [key in keyof T]: T[key] extends {
++        get: (...args: any[]) => infer TReturn;
++    } ? TReturn : T[key] extends (...args: any[]) => infer TReturn ? TReturn : never;
++};
++type ComponentOptionsWithProps<PropsOptions = ComponentPropsOptions, RawBindings = Data, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, Props = ExtractPropTypes<PropsOptions>> = ComponentOptionsBase<Props, D, C, M> & {
++    props?: PropsOptions;
++    emits?: Emits & ThisType<void>;
++    setup?: SetupFunction<Props, RawBindings, Emits>;
++} & ThisType<ComponentRenderProxy<Props, RawBindings, D, C, M, Mixin, Extends, Emits>>;
++type ComponentOptionsWithArrayProps<PropNames extends string = string, RawBindings = Data, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, Props = Readonly<{
++    [key in PropNames]?: any;
++}>> = ComponentOptionsBase<Props, D, C, M> & {
++    props?: PropNames[];
++    emits?: Emits & ThisType<void>;
++    setup?: SetupFunction<Props, RawBindings, Emits>;
++} & ThisType<ComponentRenderProxy<Props, RawBindings, D, C, M, Mixin, Extends, Emits>>;
++type ComponentOptionsWithoutProps<Props = {}, RawBindings = Data, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> = ComponentOptionsBase<Props, D, C, M> & {
++    props?: undefined;
++    emits?: Emits & ThisType<void>;
++    setup?: SetupFunction<Props, RawBindings, Emits>;
++} & ThisType<ComponentRenderProxy<Props, RawBindings, D, C, M, Mixin, Extends, Emits>>;
++
++type AnyObject = Record<string | number | symbol, any>;
++type Equal<Left, Right> = (<U>() => U extends Left ? 1 : 0) extends (<U>() => U extends Right ? 1 : 0) ? true : false;
++type HasDefined<T> = Equal<T, unknown> extends true ? false : true;
++
++/**
++* overload 1: object format with no props
++*/
++declare function virtualDefineComponent<RawBindings, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}>(options: ComponentOptionsWithoutProps<{}, RawBindings, D, C, M, Mixin, Extends, Emits>): VueProxy<{}, RawBindings, D, C, M, Mixin, Extends, Emits>;
++/**
++* overload 2: object format with array props declaration
++* props inferred as `{ [key in PropNames]?: any }`
++*
++* return type is for Vetur and TSX support
++*/
++declare function virtualDefineComponent<PropNames extends string, RawBindings = Data, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, PropsOptions extends ComponentPropsOptions = ComponentPropsOptions>(options: ComponentOptionsWithArrayProps<PropNames, RawBindings, D, C, M, Mixin, Extends, Emits>): VueProxy<Readonly<{
++    [key in PropNames]?: any;
++}>, RawBindings, D, C, M, Mixin, Extends, Emits>;
++/**
++* overload 3: object format with object props declaration
++*
++* see `ExtractPropTypes` in './componentProps.ts'
++*/
++declare function virtualDefineComponent<Props, RawBindings = Data, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, PropsOptions extends ComponentPropsOptions = ComponentPropsOptions>(options: HasDefined<Props> extends true ? ComponentOptionsWithProps<PropsOptions, RawBindings, D, C, M, Mixin, Extends, Emits, Props> : ComponentOptionsWithProps<PropsOptions, RawBindings, D, C, M, Mixin, Extends, Emits>): VueProxy<PropsOptions, RawBindings, D, C, M, Mixin, Extends, Emits>;
++
++declare const TESTIDN: number
++
++type Component = VueProxy<any, any, any, any, any>;
++type ComponentOrComponentOptions = Component | ComponentOptionsWithoutProps | ComponentOptionsWithArrayProps | ComponentOptionsWithProps;
++type AsyncComponentResolveResult<T = ComponentOrComponentOptions> = T | {
++    default: T;
++};
++type AsyncComponentLoader = () => Promise<AsyncComponentResolveResult>;
++interface AsyncComponentOptions {
++    loader: AsyncComponentLoader;
++    loadingComponent?: ComponentOrComponentOptions;
++    errorComponent?: ComponentOrComponentOptions;
++    delay?: number;
++    timeout?: number;
++    suspensible?: boolean;
++    onError?: (error: Error, retry: () => void, fail: () => void, attempts: number) => any;
++}
++
++type DirectiveModifiers = Record<string, boolean>;
++interface DirectiveBinding<V> extends Readonly<VNodeDirective> {
++    readonly modifiers: DirectiveModifiers;
++    readonly value: V;
++    readonly oldValue: V | null;
++}
++type DirectiveHook<T = any, Prev = VNode | null, V = any> = (el: T, binding: DirectiveBinding<V>, vnode: VNode, prevVNode: Prev) => void;
++interface ObjectDirective<T = any, V = any> {
++    bind?: DirectiveHook<T, any, V>;
++    inserted?: DirectiveHook<T, any, V>;
++    update?: DirectiveHook<T, any, V>;
++    componentUpdated?: DirectiveHook<T, any, V>;
++    unbind?: DirectiveHook<T, any, V>;
++}
++type FunctionDirective<T = any, V = any> = DirectiveHook<T, any, V>;
++type Directive<T = any, V = any> = ObjectDirective<T, V> | FunctionDirective<T, V>;
++
++
++const _refBrand: unique symbol;
++interface Ref<T = any> {
++    readonly [_refBrand]: true;
++    value: T;
++}
++interface WritableComputedRef<T> extends Ref<T> {
++    /**
++    * `effect` is added to be able to differentiate refs from computed properties.
++    * **Differently from Vue 3, it's just `true`**. This is because there is no equivalent
++    * of `ReactiveEffect<T>` in `@vue/composition-api`.
++    */
++    effect: true;
++}
++interface ComputedRef<T = any> extends WritableComputedRef<T> {
++    readonly value: T;
++}
++type ToRefs<T = any> = {
++    [K in keyof T]: Ref<T[K]>;
++};
++type CollectionTypes = IterableCollections | WeakCollections;
++type IterableCollections = Map<any, any> | Set<any>;
++type WeakCollections = WeakMap<any, any> | WeakSet<any>;
++type BaseTypes = string | number | boolean | Node | Window;
++type ShallowUnwrapRef<T> = {
++    [K in keyof T]: T[K] extends Ref<infer V> ? V : T[K];
++};
++type UnwrapRef<T> = T extends Ref<infer V> ? UnwrapRefSimple<V> : UnwrapRefSimple<T>;
++type UnwrapRefSimple<T> = T extends Function | CollectionTypes | BaseTypes | Ref ? T : T extends Array<any> ? {
++    [K in keyof T]: UnwrapRefSimple<T[K]>;
++} : T extends object ? {
++    [P in keyof T]: P extends symbol ? T[P] : UnwrapRef<T[P]>;
++} : T;
++interface RefOption<T> {
++    get(): T;
++    set?(x: T): void;
++}
++class RefImpl<T> implements Ref<T> {
++    readonly [_refBrand]: true;
++    value: T;
++    constructor({ get, set }: RefOption<T>);
++}
++function createRef<T>(options: RefOption<T>, isReadonly?: boolean, isComputed?: boolean): RefImpl<T>;
++function ref<T extends object>(raw: T): T extends Ref ? T : Ref<UnwrapRef<T>>;
++function ref<T>(raw: T): Ref<UnwrapRef<T>>;
++function ref<T = any>(): Ref<T | undefined>;
++function isRef<T>(value: any): value is Ref<T>;
++function unref<T>(ref: T | Ref<T>): T;
++function toRefs<T extends object>(obj: T): ToRefs<T>;
++type CustomRefFactory<T> = (track: () => void, trigger: () => void) => {
++    get: () => T;
++    set: (value: T) => void;
++};
++function customRef<T>(factory: CustomRefFactory<T>): Ref<T>;
++function toRef<T extends object, K extends keyof T>(object: T, key: K): Ref<T[K]>;
++function shallowRef<T extends object>(value: T): T extends Ref ? T : Ref<T>;
++function shallowRef<T>(value: T): Ref<T>;
++function shallowRef<T = any>(): Ref<T | undefined>;
++function triggerRef(value: any): void;
++function proxyRefs<T extends object>(objectWithRefs: T): ShallowUnwrapRef<T>;
++
++function isRaw(obj: any): boolean;
++function isReactive(obj: any): boolean;
++function shallowReactive<T extends object = any>(obj: T): T;
++/**
++* Make obj reactivity
++*/
++function reactive<T extends object>(obj: T): UnwrapRef<T>;
++/**
++* Make sure obj can't be a reactive
++*/
++function markRaw<T extends object>(obj: T): T;
++function toRaw<T>(observed: T): T;
++
++function isReadonly(obj: any): boolean;
++type Primitive = string | number | boolean | bigint | symbol | undefined | null;
++type Builtin = Primitive | Function | Date | Error | RegExp;
++type DeepReadonly<T> = T extends Builtin ? T : T extends Map<infer K, infer V> ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>> : T extends ReadonlyMap<infer K, infer V> ? ReadonlyMap<DeepReadonly<K>, DeepReadonly<V>> : T extends WeakMap<infer K, infer V> ? WeakMap<DeepReadonly<K>, DeepReadonly<V>> : T extends Set<infer U> ? ReadonlySet<DeepReadonly<U>> : T extends ReadonlySet<infer U> ? ReadonlySet<DeepReadonly<U>> : T extends WeakSet<infer U> ? WeakSet<DeepReadonly<U>> : T extends Promise<infer U> ? Promise<DeepReadonly<U>> : T extends {} ? {
++    readonly [K in keyof T]: DeepReadonly<T[K]>;
++} : Readonly<T>;
++type UnwrapNestedRefs<T> = T extends Ref ? T : UnwrapRefSimple<T>;
++/**
++* **In @vue/composition-api, `reactive` only provides type-level readonly check**
++*
++* Creates a readonly copy of the original object. Note the returned copy is not
++* made reactive, but `readonly` can be called on an already reactive object.
++*/
++function readonly<T extends object>(target: T): DeepReadonly<UnwrapNestedRefs<T>>;
++function shallowReadonly<T extends object>(obj: T): Readonly<T>;
++
++/**
++* Set a property on an object. Adds the new property, triggers change
++* notification and intercept it's subsequent access if the property doesn't
++* already exist.
++*/
++function set<T>(target: AnyObject, key: any, val: T): T;
++
++/**
++* Delete a property and trigger change if necessary.
++*/
++function del(target: AnyObject, key: any): void;
++
++const onBeforeMount: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onMounted: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onBeforeUpdate: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onUpdated: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onBeforeUnmount: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onUnmounted: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onErrorCaptured: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onActivated: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onDeactivated: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++const onServerPrefetch: (callback: Function, target?: ComponentInternalInstance | null | undefined) => Function | null;
++
++type WatchEffect = (onInvalidate: InvalidateCbRegistrator) => void;
++type WatchSource<T = any> = Ref<T> | ComputedRef<T> | (() => T);
++type WatchCallback<V = any, OV = any> = (value: V, oldValue: OV, onInvalidate: InvalidateCbRegistrator) => any;
++type MapSources<T> = {
++    [K in keyof T]: T[K] extends WatchSource<infer V> ? V : never;
++};
++type MapOldSources<T, Immediate> = {
++    [K in keyof T]: T[K] extends WatchSource<infer V> ? Immediate extends true ? V | undefined : V : never;
++};
++interface WatchOptionsBase {
++    flush?: FlushMode;
++}
++type InvalidateCbRegistrator = (cb: () => void) => void;
++type FlushMode = 'pre' | 'post' | 'sync';
++interface WatchOptions<Immediate = boolean> extends WatchOptionsBase {
++    immediate?: Immediate;
++    deep?: boolean;
++}
++interface VueWatcher {
++    lazy: boolean;
++    get(): any;
++    teardown(): void;
++    run(): void;
++    value: any;
++}
++type WatchStopHandle = () => void;
++function watchEffect(effect: WatchEffect, options?: WatchOptionsBase): WatchStopHandle;
++function watchPostEffect(effect: WatchEffect): WatchStopHandle;
++function watchSyncEffect(effect: WatchEffect): WatchStopHandle;
++function watch<T extends Readonly<WatchSource<unknown>[]>, Immediate extends Readonly<boolean> = false>(sources: T, cb: WatchCallback<MapSources<T>, MapOldSources<T, Immediate>>, options?: WatchOptions<Immediate>): WatchStopHandle;
++function watch<T, Immediate extends Readonly<boolean> = false>(source: WatchSource<T>, cb: WatchCallback<T, Immediate extends true ? T | undefined : T>, options?: WatchOptions<Immediate>): WatchStopHandle;
++function watch<T extends object, Immediate extends Readonly<boolean> = false>(source: T, cb: WatchCallback<T, Immediate extends true ? T | undefined : T>, options?: WatchOptions<Immediate>): WatchStopHandle;
++
++type ComputedGetter<T> = (ctx?: any) => T;
++type ComputedSetter<T> = (v: T) => void;
++interface WritableComputedOptions<T> {
++    get: ComputedGetter<T>;
++    set: ComputedSetter<T>;
++}
++function computed<T>(getter: ComputedGetter<T>): ComputedRef<T>;
++function computed<T>(options: WritableComputedOptions<T>): WritableComputedRef<T>;
++
++interface InjectionKey<T> extends Symbol {
++}
++function provide<T>(key: InjectionKey<T> | string, value: T): void;
++function inject<T>(key: InjectionKey<T> | string): T | undefined;
++function inject<T>(key: InjectionKey<T> | string, defaultValue: T, treatDefaultAsFactory?: false): T;
++function inject<T>(key: InjectionKey<T> | string, defaultValue: T | (() => T), treatDefaultAsFactory?: true): T;
++
++const useCssModule: (name?: string) => Record<string, string>;
++/**
++* @deprecated use `useCssModule` instead.
++*/
++const useCSSModule: (name?: string) => Record<string, string>;
++
++interface App<T = any> {
++    config: VueConstructor['config'];
++    use: VueConstructor['use'];
++    mixin: VueConstructor['mixin'];
++    component: VueConstructor['component'];
++    directive(name: string): Directive | undefined;
++    directive(name: string, directive: Directive): this;
++    mount: Vue$1['$mount'];
++    unmount: Vue$1['$destroy'];
++}
++function createApp(rootComponent: any, rootProps?: any): App;
++
++type NextTick = Vue$1['$nextTick'];
++const nextTick: NextTick;
++
++const createElement: CreateElement;
++
++/**
++* Displays a warning message (using console.error) with a stack trace if the
++* function is called inside of active component.
++*
++* @param message warning message to be displayed
++*/
++function warn(message: string): void;
++
++class EffectScopeImpl {
++    active: boolean;
++    effects: EffectScope[];
++    cleanups: (() => void)[];
++    constructor(vm: Vue);
++    run<T>(fn: () => T): T | undefined;
++    on(): void;
++    off(): void;
++    stop(): void;
++}
++class EffectScope extends EffectScopeImpl {
++    constructor(detached?: boolean);
++}
++function effectScope(detached?: boolean): EffectScope;
++function getCurrentScope(): EffectScope | undefined;
++function onScopeDispose(fn: () => void): void;
++
++function useSlots(): SetupContext['slots'];
++function useAttrs(): SetupContext['attrs'];

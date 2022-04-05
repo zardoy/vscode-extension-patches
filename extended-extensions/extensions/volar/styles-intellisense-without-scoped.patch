@@ -1,15 +1,13 @@
 diff --git a/packages/vue-typescript/src/use/useSfcTemplateScript.ts b/packages/vue-typescript/src/use/useSfcTemplateScript.ts
-index 48d02685..7f50d8e6 100644
+index 8fd58c33..c1b76e3d 100644
 --- a/packages/vue-typescript/src/use/useSfcTemplateScript.ts
 +++ b/packages/vue-typescript/src/use/useSfcTemplateScript.ts
-@@ -49,10 +49,8 @@ export function useSfcTemplateScript(
+@@ -46,7 +46,7 @@ export function useSfcTemplateScript(
  	const cssScopedClasses = computed(() => {
- 		const obj: Record<string, ReturnType<typeof cssClasses.findClassNames>> = {};
- 		for (const style of styleDocuments.value) {
--			if (style.scoped) {
- 				const classes = getCssClasses(style.textDocument);
- 				obj[style.textDocument.uri] = classes;
--			}
- 		}
- 		return obj;
- 	});
+ 		const obj: Record<string, Record<string, TextRange[]>> = {};
+ 		for (const style of styleFiles.value) {
+-			if (style.data.scoped || compilerOptions.experimentalResolveNonScopedCssClasses) {
++			if (style.data.scoped || true) {
+ 				const classes = getCssClasses(style);
+ 				obj[style.fileName] = classes;
+ 			}
