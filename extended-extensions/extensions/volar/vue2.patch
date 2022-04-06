@@ -224,14 +224,13 @@ index d3bc0c68..53f282a0 100644
  }
 diff --git a/packages/vue-typescript/src/virtualDefineComponent.d.ts b/packages/vue-typescript/src/virtualDefineComponent.d.ts
 new file mode 100644
-index 00000000..4aa4ba93
+index 00000000..ea80e8f5
 --- /dev/null
 +++ b/packages/vue-typescript/src/virtualDefineComponent.d.ts
-@@ -0,0 +1,509 @@
+@@ -0,0 +1,502 @@
 +type Vue$1 = import('vue').default
 +type VNode = import('vue').VNode
 +type VueConstructor = import('vue').VueConstructor
-+type ComponentOptions = import('vue').ComponentOptions
 +type AsyncComponent = import('vue').AsyncComponent
 +type VNodeDirective = import('vue').VNodeDirective
 +type CreateElement = import('vue').CreateElement
@@ -376,6 +375,7 @@ index 00000000..4aa4ba93
 +    isUnmounted: boolean;
 +    isDeactivated: boolean;
 +}
++function getCurrentInstance(): ComponentInternalInstance | null;
 +
 +type EmitsToProps<T extends EmitsOptions> = T extends string[] ? {
 +    [K in string & `on${Capitalize<T[number]>}`]?: (...args: any[]) => any;
@@ -402,7 +402,7 @@ index 00000000..4aa4ba93
 +type DefaultComputed = {
 +    [key: string]: any;
 +};
-+type VueProxy<PropsOptions, RawBindings, Data = DefaultData<Vue$1>, Computed extends ComputedOptions = DefaultComputed, Methods extends MethodOptions = DefaultMethods<Vue$1>, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> = ComponentOptions<Vue$1, ShallowUnwrapRef<RawBindings> & Data, Methods, Computed, PropsOptions, ExtractPropTypes<PropsOptions>> & VueConstructorProxy<PropsOptions, RawBindings, Data, Computed, Methods, Mixin, Extends, Emits>;
++type VueProxy<PropsOptions, RawBindings, Data = DefaultData<Vue$1>, Computed extends ComputedOptions = DefaultComputed, Methods extends MethodOptions = DefaultMethods<Vue$1>, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> = import('vue').ComponentOptions<Vue$1, ShallowUnwrapRef<RawBindings> & Data, Methods, Computed, PropsOptions, ExtractPropTypes<PropsOptions>> & VueConstructorProxy<PropsOptions, RawBindings, Data, Computed, Methods, Mixin, Extends, Emits>;
 +type ComponentPublicInstance<P = {}, // props type extracted from props option
 +B = {}, // raw bindings returned from setup()
 +D = {}, // return from data()
@@ -433,12 +433,8 @@ index 00000000..4aa4ba93
 +    [key: string]: Function;
 +}
 +type SetupFunction<Props, RawBindings = {}, Emits extends EmitsOptions = {}> = (this: void, props: Readonly<Props>, ctx: SetupContext<Emits>) => RawBindings | (() => VNode | null) | void;
-+interface ComponentOptionsBase<Props, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> extends Omit<ComponentOptions<Vue$1, D, M, C, Props>, 'data' | 'computed' | 'method' | 'setup' | 'props'> {
++interface ComponentOptionsBase<Props, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}> extends Omit<import('vue').ComponentOptions<Vue$1, D, M, C, Props>, 'data' | 'computed' | 'method' | 'setup' | 'props'> {
 +    [key: string]: any;
-+    components?: {
-+        [component: any]: any
-+    },
-+    mixins?: any[],
 +    data?: (this: Props & Vue$1, vm: Props) => D;
 +    computed?: C;
 +    methods?: M;
@@ -490,8 +486,6 @@ index 00000000..4aa4ba93
 +*/
 +declare function virtualDefineComponent<Props, RawBindings = Data, D = Data, C extends ComputedOptions = {}, M extends MethodOptions = {}, Mixin = {}, Extends = {}, Emits extends EmitsOptions = {}, PropsOptions extends ComponentPropsOptions = ComponentPropsOptions>(options: HasDefined<Props> extends true ? ComponentOptionsWithProps<PropsOptions, RawBindings, D, C, M, Mixin, Extends, Emits, Props> : ComponentOptionsWithProps<PropsOptions, RawBindings, D, C, M, Mixin, Extends, Emits>): VueProxy<PropsOptions, RawBindings, D, C, M, Mixin, Extends, Emits>;
 +
-+declare const TESTIDN: number
-+
 +type Component = VueProxy<any, any, any, any, any>;
 +type ComponentOrComponentOptions = Component | ComponentOptionsWithoutProps | ComponentOptionsWithArrayProps | ComponentOptionsWithProps;
 +type AsyncComponentResolveResult<T = ComponentOrComponentOptions> = T | {
@@ -524,7 +518,6 @@ index 00000000..4aa4ba93
 +}
 +type FunctionDirective<T = any, V = any> = DirectiveHook<T, any, V>;
 +type Directive<T = any, V = any> = ObjectDirective<T, V> | FunctionDirective<T, V>;
-+
 +
 +const _refBrand: unique symbol;
 +interface Ref<T = any> {
