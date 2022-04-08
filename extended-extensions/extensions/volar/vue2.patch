@@ -48,10 +48,48 @@ index 3e9b974a..7d6ae9a7 100644
                  const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
                  const pathEsm = pathUmdMay.replace('compiler-sfc.cjs.js', 'compiler-sfc.esm-browser.js')
 diff --git a/packages/vue-language-server/src/project.ts b/packages/vue-language-server/src/project.ts
-index ebd48900..a986ae4c 100644
+index ebd48900..6a02c6ff 100644
 --- a/packages/vue-language-server/src/project.ts
 +++ b/packages/vue-language-server/src/project.ts
-@@ -127,6 +127,7 @@ export async function createProject(
+@@ -84,6 +84,37 @@ export async function createProject(
+ 	async function getLanguageService() {
+ 		if (!vueLs) {
+ 			vueLs = (async () => {
++				const origSnapshot = languageServiceHost.getScriptSnapshot
++				languageServiceHost.getScriptSnapshot = (fileName) => {
++					const value = origSnapshot(fileName);
++					let wrapped = false
++					// TODO too loose
++					const isMixin = fileName.includes('mixin')
++					if (value && (fileName.endsWith('.vue') || isMixin)) {
++						//@ts-ignore
++						value.text = value.text.replace(/(\s*export default ){/, (_, g1) => {
++							wrapped = true
++							return `${g1}virtualDefineComponent({`;
++							// return `${g1}(await import(\'@vue/composition-api\')).defineComponent({`;
++						})
++						if (wrapped) {
++							//@ts-ignore
++							const lines: string[] = value.text.split('\n');
++							const linesToFind = isMixin ? lines : lines.slice(0, lines.findIndex((line) => line.trim() === '</script>'));
++							const patchIndex = [...linesToFind].reverse().findIndex((str) => str.trim().match(/};?/));
++							if (patchIndex !== -1) {
++								lines[linesToFind.length - patchIndex - 1] = '})'
++								//@ts-ignore
++								value.text = lines.join('\n')
++							} else {
++								console.warn('Error line patching');
++							}
++							//@ts-ignore
++							console.log('Patched script:', fileName)
++						}
++					}
++					return value
++				}
+ 				const workDoneProgress = await connection.window.createWorkDoneProgress();
+ 				const customPlugins = loadCustomPlugins(languageServiceHost.getCurrentDirectory());
+ 				const vueLs = vue.createLanguageService(
+@@ -127,6 +158,7 @@ export async function createProject(
  							attr: options.languageFeatures!.completion!.defaultAttrNameCase,
  						};
  					} : undefined,
@@ -94,7 +132,7 @@ index 49659ec1..5ae2b0e7 100644
  	"browser": {
  		"./out/plugins/pug.js": "./out/plugins/empty.js"
 diff --git a/packages/vue-typescript/src/typescriptRuntime.ts b/packages/vue-typescript/src/typescriptRuntime.ts
-index 7d2d556e..d2487162 100644
+index 7d2d556e..949d1606 100644
 --- a/packages/vue-typescript/src/typescriptRuntime.ts
 +++ b/packages/vue-typescript/src/typescriptRuntime.ts
 @@ -7,6 +7,7 @@ import { LanguageServiceHost, VueCompilerOptions } from './types';
@@ -113,7 +151,7 @@ index 7d2d556e..d2487162 100644
  }) {
  
      const { typescript: ts } = options;
-@@ -217,7 +219,62 @@ export function createTypeScriptRuntime(options: {
+@@ -217,7 +219,37 @@ export function createTypeScriptRuntime(options: {
  
          const tsHost = new Proxy<ts.LanguageServiceHost>(_tsHost as ts.LanguageServiceHost, {
              get: (target, property: keyof ts.LanguageServiceHost) => {
@@ -141,31 +179,6 @@ index 7d2d556e..d2487162 100644
 +                    if (property === 'getScriptFileNames') {
 +                        //@ts-ignore
 +                        value.push(virtualScript)
-+                    }
-+                    if (property === 'getScriptSnapshot') {
-+                        const filename = args[0]
-+                        if (filename.endsWith('.vue.js') && value) {
-+                            let wrapped = false
-+                            //@ts-ignore
-+                            value.text = value.text.replace(/(\s*export default ){/, (_, g1) => {
-+                                wrapped = true
-+                                return `${g1}virtualDefineComponent({`;
-+                                // return `${g1}(await import(\'@vue/composition-api\')).defineComponent({`;
-+                            })
-+                            if (wrapped) {
-+                                //@ts-ignore
-+                                const lines = value.text.split('\n');
-+                                const patchIndex = [...lines].reverse().findIndex((str: string) => str.trim().match(/};?/));
-+                                if (patchIndex !== -1) {
-+                                    lines[lines.length - patchIndex - 1] = '})'
-+                                    //@ts-ignore
-+                                    value.text = lines.join('\n')
-+                                } else {
-+                                    console.warn('Error line patching');
-+                                }
-+                                console.log('Patched script:', filename)
-+                            }
-+                        }
 +                    }
 +                    // if (['getScriptFileNames', 'fileExists', 'readFile'].includes(property)) console.log(property, args, value)
 +                    //@ts-ignore
