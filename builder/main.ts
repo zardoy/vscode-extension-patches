@@ -33,6 +33,7 @@ export interface AnyLevelMetadata {
 export interface MetadataJson extends Partial<AnyLevelMetadata> {
     repo: string
     location?: string
+    clipDir?: boolean
     // only
     // postfixDisplayName?: string
 }
@@ -92,7 +93,13 @@ const main = async () => {
         const fromTemp = (...path: string[]) => join(basePath, 'temp', extension, ...path)
 
         console.log('Extension target:', fromDestExtension())
-        const { cachedPath } = await gitlyCached(cachePath, localLevelMetadata.repo)
+        const { cachedPath } = await gitlyCached(cachePath, localLevelMetadata.repo, {
+            ifNotExists: {
+                before() {
+                    console.log('Downloading', localLevelMetadata.repo)
+                }
+            }
+        })
         if (fs.existsSync(fromDest())) await fsExtra.rm(fromDest(), { recursive: true })
         await fsExtra.copy(cachedPath, fromDest())
         // TODO make pkg from release-action

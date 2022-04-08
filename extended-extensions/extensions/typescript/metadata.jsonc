@@ -1,0 +1,12 @@
+{
+    "repo": "microsoft/vscode#5a830437805c392ad076b2e2742708b0f74b3bde",
+    "location": "extensions/typescript-language-features",
+    "clipDir": true,
+    "build": "pnpm prepack:node",
+    "packageJson": {
+        "displayName": "TypeScript Extended",
+        "description": "TypeScript with tomorrow features that you can use today!",
+        "name": "typescript-extended",
+        "keywords": []
+    }
+}
