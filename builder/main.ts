@@ -89,7 +89,7 @@ const main = async () => {
         mergedMetadata.packageJson = { ...globalLevelMetadata.packageJson, ...localLevelMetadata.packageJson }
 
         const fromDest = (...path: string[]) => join(basePath, 'dest', extension, ...path)
-        const fromDestExtension = (...path: string[]) => fromDest(localLevelMetadata.location ?? '', ...path)
+        const fromDestExtension = (...path: string[]) => (localLevelMetadata.clipDir ? fromDest(...path) : fromDest(localLevelMetadata.location ?? '', ...path))
         const fromTemp = (...path: string[]) => join(basePath, 'temp', extension, ...path)
 
         console.log('Extension target:', fromDestExtension())
@@ -97,11 +97,11 @@ const main = async () => {
             ifNotExists: {
                 before() {
                     console.log('Downloading', localLevelMetadata.repo)
-                }
-            }
+                },
+            },
         })
         if (fs.existsSync(fromDest())) await fsExtra.rm(fromDest(), { recursive: true })
-        await fsExtra.copy(cachedPath, fromDest())
+        await fsExtra.copy(cachedPath, localLevelMetadata.clipDir ? fromDest(localLevelMetadata.location ?? '') : fromDest())
         // TODO make pkg from release-action
 
         const newEntrypoint = 'main.js'
