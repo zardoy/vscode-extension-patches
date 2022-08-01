@@ -34,6 +34,7 @@ export interface MetadataJson extends Partial<AnyLevelMetadata> {
     repo: string
     location?: string
     clipDir?: boolean
+    skip?: true
     // only
     // postfixDisplayName?: string
 }
@@ -85,6 +86,7 @@ const main = async () => {
         const fromSource = (...path: string[]) => join(extensionsPath, extension, ...path)
         if (!fs.lstatSync(fromSource()).isDirectory()) continue
         const localLevelMetadata = await readJsonFile<MetadataJson>(fromSource('metadata.jsonc'))
+        if (localLevelMetadata.skip) continue
         const mergedMetadata: AnyLevelMetadata = { ...globalLevelMetadata, ...localLevelMetadata }
         mergedMetadata.packageJson = { ...globalLevelMetadata.packageJson, ...localLevelMetadata.packageJson }
 

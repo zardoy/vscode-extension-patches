@@ -1,0 +1,2455 @@
+diff --git a/extensions/vscode-vue-language-features/scripts/build-node.js b/extensions/vscode-vue-language-features/scripts/build-node.js
+index 6770765f..b259bb28 100644
+--- a/extensions/vscode-vue-language-features/scripts/build-node.js
++++ b/extensions/vscode-vue-language-features/scripts/build-node.js
+@@ -1,52 +1,86 @@
+ require('esbuild').build({
+-    entryPoints: process.argv.includes('--empty') ? {
+-        client: './scripts/empty.js',
+-        server: './scripts/empty.js',
+-    } : {
+-        client: './out/nodeClientMain.js',
+-        server: './node_modules/@volar/vue-language-server/out/node.js',
+-    },
+-    bundle: true,
+-    outdir: './dist/node',
+-    external: ['vscode'],
+-    format: 'cjs',
+-    platform: 'node',
+-    tsconfig: '../../tsconfig.build.json',
+-    define: { 'process.env.NODE_ENV': '"production"' },
+-    minify: process.argv.includes('--minify'),
+-    watch: process.argv.includes('--watch'),
+-    plugins: [
+-        {
+-            name: 'umd2esm',
+-            setup(build) {
+-                build.onResolve({ filter: /^(vscode-.*|estree-walker|jsonc-parser)/ }, args => {
+-                    const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
+-										// Call twice the replace is to solve the problem of the path in Windows
+-                    const pathEsm = pathUmdMay.replace('/umd/', '/esm/').replace('\\umd\\', '\\esm\\')
+-                    return { path: pathEsm }
+-                })
+-                build.onResolve({ filter: /^\@vue\/compiler-sfc$/ }, args => {
+-                    const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
+-                    const pathEsm = pathUmdMay.replace('compiler-sfc.cjs.js', 'compiler-sfc.esm-browser.js')
+-                    return { path: pathEsm }
+-                })
+-            },
+-        },
+-        require('esbuild-plugin-copy').copy({
+-            resolveFrom: 'cwd',
+-            assets: {
+-                from: ['./node_modules/@volar/preview/bin/**/*'],
+-                to: ['./dist/preview-bin'],
+-            },
+-            keepStructure: true,
+-        }),
+-        require('esbuild-plugin-copy').copy({
+-            resolveFrom: 'cwd',
+-            assets: {
+-                from: ['./node_modules/@volar/vue-language-core/schemas/**/*'],
+-                to: ['./dist/schemas'],
+-            },
+-            keepStructure: true,
+-        }),
+-    ],
++	entryPoints: process.argv.includes('--empty') ? {
++		client: './scripts/empty.js',
++		server: './scripts/empty.js',
++	} : {
++		client: './out/nodeClientMain.js',
++		server: './node_modules/@volar/vue-language-server/out/node.js',
++	},
++	bundle: true,
++	outdir: './dist/node',
++	external: ['vscode'],
++	format: 'cjs',
++	platform: 'node',
++	tsconfig: '../../tsconfig.build.json',
++	define: { 'process.env.NODE_ENV': '"production"' },
++	minify: process.argv.includes('--minify'),
++	watch: process.argv.includes('--watch'),
++	plugins: [
++		{
++			name: 'umd2esm',
++			setup(build) {
++				build.onResolve({ filter: /^(vscode-.*|estree-walker|jsonc-parser)/ }, args => {
++					const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
++					// Call twice the replace is to solve the problem of the path in Windows
++					const pathEsm = pathUmdMay.replace('/umd/', '/esm/').replace('\\umd\\', '\\esm\\')
++					return { path: pathEsm }
++				})
++				build.onResolve({ filter: /^\@vue\/compiler-sfc$/ }, args => {
++					const pathUmdMay = require.resolve(args.path, { paths: [args.resolveDir] })
++					const pathEsm = pathUmdMay.replace('compiler-sfc.cjs.js', 'compiler-sfc.esm-browser.js')
++					return { path: pathEsm }
++				})
++			},
++		},
++		{
++			name: 'virtual-script-provider',
++			setup(build) {
++				build.onResolve({ filter: /DEFINE_VIRTUAL_SCRIPT_CONTENTS/ }, () => {
++					return {
++						namespace: 'DEFINE_VIRTUAL_SCRIPT_CONTENTS',
++						path: 'DEFINE_VIRTUAL_SCRIPT_CONTENTS',
++					}
++				})
++				build.onLoad({ filter: /.*/, namespace: 'DEFINE_VIRTUAL_SCRIPT_CONTENTS' }, () => {
++					return {
++						contents: require('fs').readFileSync(require('path').join(__dirname, './virtualDefine.d.ts'), 'utf-8'),
++						loader: 'text'
++					}
++				})
++			}
++		},
++		{
++			name: 'patched-vuex-helpers-script-provider',
++			setup(build) {
++				build.onResolve({ filter: /VUEX_HELPERS_PATCHED_SCRIPT/ }, () => {
++					return {
++						namespace: 'VUEX_HELPERS_PATCHED_SCRIPT',
++						path: 'VUEX_HELPERS_PATCHED_SCRIPT',
++					}
++				})
++				build.onLoad({ filter: /.*/, namespace: 'VUEX_HELPERS_PATCHED_SCRIPT' }, () => {
++					return {
++						contents: require('fs').readFileSync(require('path').join(__dirname, './vuexHelpers.d.ts'), 'utf-8'),
++						loader: 'text'
++					}
++				})
++			}
++		},
++		require('esbuild-plugin-copy').copy({
++			resolveFrom: 'cwd',
++			assets: {
++				from: ['./node_modules/@volar/preview/bin/**/*'],
++				to: ['./dist/preview-bin'],
++			},
++			keepStructure: true,
++		}),
++		require('esbuild-plugin-copy').copy({
++			resolveFrom: 'cwd',
++			assets: {
++				from: ['./node_modules/@volar/vue-language-core/schemas/**/*'],
++				to: ['./dist/schemas'],
++			},
++			keepStructure: true,
++		}),
++	],
+ }).catch(() => process.exit(1))
+diff --git a/extensions/vscode-vue-language-features/scripts/virtualDefine.d.ts b/extensions/vscode-vue-language-features/scripts/virtualDefine.d.ts
+new file mode 100644
+index 00000000..1678fd97
+--- /dev/null
++++ b/extensions/vscode-vue-language-features/scripts/virtualDefine.d.ts
+@@ -0,0 +1,847 @@
++// original name has .d.ts to exclude from type-checking, temporarily rename to .ts to include it
++type ComponentOptionsOrig = import('vue/types/options').ComponentOptions<any>;
++type ComponentPropsOrig = import('vue/types/vue').Vue;
++
++const _refBrand: unique symbol;
++interface Ref<T = any> {
++	readonly [_refBrand]: true;
++	value: T;
++}
++type ShallowUnwrapRef<T> = {
++	[K in keyof T]: T[K] extends Ref<infer V> ? V : T[K]
++};
++type UnwrapRef<T> = T extends Ref<infer V> ? UnwrapRefSimple<V> : UnwrapRefSimple<T>;
++type CollectionTypes = IterableCollections | WeakCollections;
++type IterableCollections = Map<any, any> | Set<any>;
++type WeakCollections = WeakMap<any, any> | WeakSet<any>;
++type BaseTypes = string | number | boolean | Node | Window;
++type UnwrapRefSimple<T> = T extends Function | CollectionTypes | BaseTypes | Ref
++	? T
++	: T extends Array<any>
++	? {
++		[K in keyof T]: UnwrapRefSimple<T[K]>
++	}
++	: T extends object
++	? {
++		[P in keyof T]: P extends symbol ? T[P] : UnwrapRef<T[P]>
++	}
++	: T;
++
++type ComputedSetter<T> = (v: T) => void;
++type ComputedGetter<T> = (...args: any[]) => T;
++interface WritableComputedOptions<T> {
++	get: ComputedGetter<T>;
++	set: ComputedSetter<T>;
++}
++
++/**
++ * Default allowed non-declared props on component in TSX
++ */
++declare interface AllowedComponentProps {
++	class?: unknown;
++	style?: unknown;
++}
++
++declare type AsyncComponentLoader<T = any> = () => Promise<AsyncComponentResolveResult<T>>;
++
++declare interface AsyncComponentOptions<T = any> {
++	loader: AsyncComponentLoader<T>;
++	loadingComponent?: Component;
++	errorComponent?: Component;
++	delay?: number;
++	timeout?: number;
++	suspensible?: boolean;
++	onError?: (error: Error, retry: () => void, fail: () => void, attempts: number) => any;
++}
++
++declare type AsyncComponentResolveResult<T = Component> =
++	| T
++	| {
++		default: T;
++	};
++
++declare interface MethodOptions {
++	[key: string]: Function;
++}
++
++/**
++ * A type used in public APIs where a component type is expected.
++ * The constructor type is an artificial type returned by defineComponent().
++ */
++declare type Component<Props = any, RawBindings = any, D = any, C extends ComputedOptions = ComputedOptions, M extends MethodOptions = MethodOptions> =
++	| ConcreteComponent<Props, RawBindings, D, C, M>
++	| ComponentPublicInstanceConstructor<Props>;
++
++// TODO try to use keyof
++type StandardKnownComponentOptions =
++	| 'activated'
++	| 'beforeCreate'
++	| 'beforeMount'
++	| 'beforeUnmount'
++	| 'beforeUpdate'
++	| 'call'
++	| 'components'
++	| 'created'
++	| 'data'
++	| 'deactivated'
++	| 'directives'
++	| 'emits'
++	| 'errorCaptured'
++	| 'expose'
++	| 'extends'
++	| 'filters'
++	| 'inheritAttrs'
++	| 'inject'
++	| 'mixins'
++	| 'mounted'
++	| 'name'
++	| 'props'
++	| 'provide'
++	| 'render'
++	| 'serverPrefetch'
++	| 'template'
++	| 'unmounted'
++	| 'updated'
++	| 'watch'
++	| 'beforeDestroy'
++	| 'delimiters'
++	| 'destroyed'
++	| 'comments'
++	| 'el'
++	| 'model'
++	| 'parent'
++	| 'propsData'
++	| 'renderError'
++	| 'staticRenderFns'
++	| 'transitions';
++declare interface ComponentCustomOptions extends Omit<ComponentOptionsOrig, StandardKnownComponentOptions> { }
++declare interface ComponentCustomOptions { }
++
++type KnownVueProps = {
++	$attrs;
++	$children;
++	$createElement;
++	$data;
++	$delete;
++	$destroy;
++	$el;
++	$emit;
++	$forceUpdate;
++	$isServer;
++	$listeners;
++	$mount;
++	$nextTick;
++	$off;
++	$on;
++	$once;
++	$options;
++	$parent;
++	$props;
++	$refs;
++	$root;
++	$scopedSlots;
++	$set;
++	$slots;
++	$ssrContext;
++	$vnode;
++	$watch;
++};
++type UseTypedVuex<T> = T extends { $storeTyped: infer U; } ? Omit<T, '$store' | '$storeTyped'> & { $store: U; } : T;
++declare interface ComponentCustomProperties extends Omit<UseTypedVuex<ComponentPropsOrig>, keyof KnownVueProps> { }
++
++/**
++ * For extending allowed non-declared props on components in TSX
++ */
++declare interface ComponentCustomProps { }
++
++declare type ObjectInjectOptions = Record<
++	string | symbol,
++	| string
++	| symbol
++	| {
++		from?: string | symbol;
++		default?: unknown;
++	}
++>;
++
++declare type ComponentInjectOptions = string[] | ObjectInjectOptions;
++
++declare type Prop<T, D = T> = PropOptions<T, D> | PropType<T>;
++
++declare interface PropOptions<T = any, D = T> {
++	type?: PropType<T> | true | null;
++	required?: boolean;
++	default?: D | DefaultFactory<D> | null | undefined | object;
++	validator?(value: unknown): boolean;
++}
++declare type PropConstructor<T = any> =
++	| {
++		new(...args: any[]): T & {};
++	}
++	| {
++		(): T;
++	}
++	| PropMethod<T>;
++
++declare type PropMethod<T, TConstructor = any> = [T] extends [((...args: any) => any) | undefined]
++	? {
++		new(): TConstructor;
++		(): T;
++		readonly prototype: TConstructor;
++	}
++	: never;
++declare type PropType<T> = PropConstructor<T> | PropConstructor<T>[];
++
++declare type ComponentObjectPropsOptions<P = Data> = {
++	[K in keyof P]: Prop<P[K]> | null
++};
++
++declare type ObjectEmitsOptions = Record<string, ((...args: any[]) => any) | null>;
++declare type EmitsOptions = ObjectEmitsOptions | string[];
++
++declare type ComponentOptions<
++	Props = {},
++	RawBindings = any,
++	D = any,
++	C extends ComputedOptions = any,
++	M extends MethodOptions = any,
++	Mixin extends ComponentOptionsMixin = any,
++	Extends extends ComponentOptionsMixin = any,
++	E extends EmitsOptions = any,
++	> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E> &
++	ThisType<CreateComponentPublicInstance<{}, RawBindings, D, C, M, Mixin, Extends, E, Readonly<Props>>>;
++
++type VNode<A, B> = any;
++
++declare interface DirectiveBinding<V = any> {
++	instance: ComponentPublicInstance | null;
++	value: V;
++	oldValue: V | null;
++	arg?: string;
++	modifiers: DirectiveModifiers;
++	dir: ObjectDirective<any, V>;
++}
++
++declare type DirectiveHook<T = any, Prev = VNode<any, T> | null, V = any> = (el: T, binding: DirectiveBinding<V>, vnode: VNode<any, T>, prevVNode: Prev) => void;
++
++declare type DirectiveModifiers = Record<string, boolean>;
++
++declare interface ObjectDirective<T = any, V = any> {
++	created?: DirectiveHook<T, null, V>;
++	beforeMount?: DirectiveHook<T, null, V>;
++	mounted?: DirectiveHook<T, null, V>;
++	beforeUpdate?: DirectiveHook<T, VNode<any, T>, V>;
++	updated?: DirectiveHook<T, VNode<any, T>, V>;
++	beforeUnmount?: DirectiveHook<T, null, V>;
++	unmounted?: DirectiveHook<T, null, V>;
++	deep?: boolean;
++}
++
++declare type FunctionDirective<T = any, V = any> = DirectiveHook<T, any, V>;
++
++declare type Directive<T = any, V = any> = ObjectDirective<T, V> | FunctionDirective<T, V>;
++
++declare interface ComponentOptionsBase<
++	Props,
++	RawBindings,
++	D,
++	C extends ComputedOptions,
++	M extends MethodOptions,
++	Mixin extends ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin,
++	E extends EmitsOptions,
++	EE extends string = string,
++	Defaults = {},
++	> extends LegacyOptions<Props, D, C, M, Mixin, Extends>,
++	ComponentCustomOptions {
++	// TODO restore setup
++	// setup?: (
++	//     this: void,
++	//     props: Readonly<LooseRequired<Props & UnionToIntersection<ExtractOptionProp<Mixin>> & UnionToIntersection<ExtractOptionProp<Extends>>>>,
++	//     ctx: SetupContext<E>,
++	// ) => Promise<RawBindings> | RawBindings | RenderFunction | void
++	name?: string;
++	template?: string | object;
++	render?: Function;
++	components?: Record<string, Component>;
++	directives?: Record<string, Directive>;
++	inheritAttrs?: boolean;
++	/** vue 2.7 or higher */
++	emits?: (E | EE[]) & ThisType<void>;
++	expose?: string[];
++	serverPrefetch?(): Promise<any>;
++	// compilerOptions?: RuntimeCompilerOptions
++	/* Excluded from this release type: ssrRender */
++	/* Excluded from this release type: __ssrInlineRender */
++	/* Excluded from this release type: __asyncLoader */
++	/* Excluded from this release type: __asyncResolved */
++	call?: (this: unknown, ...args: unknown[]) => never;
++	__isFragment?: never;
++	__isTeleport?: never;
++	__isSuspense?: never;
++	__defaults?: Defaults;
++}
++
++declare interface LegacyOptions<
++	Props,
++	D,
++	C extends ComputedOptions,
++	M extends MethodOptions,
++	Mixin extends ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin,
++	> {
++	// compatConfig?: CompatConfig
++	[key: string]: any;
++	data?: (
++		this: CreateComponentPublicInstance<Props, {}, {}, {}, MethodOptions, Mixin, Extends>,
++		vm: CreateComponentPublicInstance<Props, {}, {}, {}, MethodOptions, Mixin, Extends>,
++	) => D;
++	computed?: C;
++	methods?: M;
++	watch?: ComponentWatchOptions;
++	provide?: ComponentProvideOptions;
++	inject?: ComponentInjectOptions;
++	filters?: Record<string, Function>;
++	mixins?: Mixin[];
++	extends?: Extends;
++	beforeCreate?(): void;
++	created?(): void;
++	beforeMount?(): void;
++	mounted?(): void;
++	beforeUpdate?(): void;
++	updated?(): void;
++	activated?(): void;
++	deactivated?(): void;
++	/** @deprecated use `beforeUnmount` instead */
++	beforeDestroy?(): void;
++	beforeUnmount?(): void;
++	/** @deprecated use `unmounted` instead */
++	destroyed?(): void;
++	unmounted?(): void;
++	// TODO restore them as well
++	// renderTracked?: DebuggerHook
++	// renderTriggered?: DebuggerHook
++	errorCaptured?: ErrorCapturedHook;
++	/**
++	 * runtime compile only
++	 * @deprecated use `compilerOptions.delimiters` instead.
++	 */
++	delimiters?: [string, string];
++	/**
++	 * #3468
++	 *
++	 * type-only, used to assist Mixin's type inference,
++	 * typescript will try to simplify the inferred `Mixin` type,
++	 * with the `__differentiator`, typescript won't be able to combine different mixins,
++	 * because the `__differentiator` will be different
++	 */
++	__differentiator?: keyof D | keyof C | keyof M;
++}
++
++declare type ErrorCapturedHook<TError = unknown> = (err: TError, instance: ComponentPublicInstance | null, info: string) => boolean | void;
++
++declare type ComponentOptionsMixin = ComponentOptionsBase<any, any, any, any, any, any, any, any, any, any>;
++
++declare type ComponentOptionsWithArrayProps<
++	PropNames extends string = string,
++	RawBindings = {},
++	D = {},
++	C extends ComputedOptions = {},
++	M extends MethodOptions = {},
++	Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++	E extends EmitsOptions = EmitsOptions,
++	EE extends string = string,
++	Props = Readonly<{
++		[key in PropNames]?: any
++	}> &
++	EmitsToProps<E>,
++	> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E, EE, {}> & {
++		props: PropNames[];
++	} & ThisType<CreateComponentPublicInstance<Props, RawBindings, D, C, M, Mixin, Extends, E>>;
++
++declare type ComponentOptionsWithObjectProps<
++	PropsOptions = ComponentObjectPropsOptions,
++	RawBindings = {},
++	D = {},
++	C extends ComputedOptions = {},
++	M extends MethodOptions = {},
++	Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++	E extends EmitsOptions = EmitsOptions,
++	EE extends string = string,
++	Props = Readonly<ExtractPropTypes<PropsOptions>> & EmitsToProps<E>,
++	Defaults = ExtractDefaultPropTypes<PropsOptions>,
++	> = ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E, EE, Defaults> & {
++		props: PropsOptions & ThisType<void>;
++	} & ThisType<CreateComponentPublicInstance<Props, RawBindings, D, C, M, Mixin, Extends, E, Props, Defaults, false>>;
++
++declare type RequiredKeys<T> = {
++	[K in keyof T]: T[K] extends
++	| {
++		required: true;
++	}
++	| {
++		default: any;
++	}
++	| BooleanConstructor
++	| {
++		type: BooleanConstructor;
++	}
++	? T[K] extends {
++		default: undefined | (() => undefined);
++	}
++	? never
++	: K
++	: never
++}[keyof T];
++
++declare type ExtractPropTypes<O> = {
++	[K in keyof Pick<O, RequiredKeys<O>>]: InferPropType<O[K]>
++} & {
++		[K in keyof Pick<O, OptionalKeys<O>>]?: InferPropType<O[K]>
++	};
++declare type OptionalKeys<T> = Exclude<keyof T, RequiredKeys<T>>;
++
++declare type ExtractDefaultPropTypes<O> = O extends object
++	? {
++		[K in keyof Pick<O, DefaultKeys<O>>]: InferPropType<O[K]>
++	}
++	: {};
++
++declare type InferPropType<T> = [T] extends [null]
++	? any
++	: [T] extends [
++		{
++			type: null | true;
++		},
++	]
++	? any
++	: [T] extends [
++		| ObjectConstructor
++		| {
++			type: ObjectConstructor;
++		},
++	]
++	? Record<string, any>
++	: [T] extends [
++		| BooleanConstructor
++		| {
++			type: BooleanConstructor;
++		},
++	]
++	? boolean
++	: [T] extends [
++		| DateConstructor
++		| {
++			type: DateConstructor;
++		},
++	]
++	? Date
++	: [T] extends [
++		| (infer U)[]
++		| {
++			type: (infer U)[];
++		},
++	]
++	? U extends DateConstructor
++	? Date | InferPropType<U>
++	: InferPropType<U>
++	: [T] extends [Prop<infer V, infer D>]
++	? unknown extends V
++	? IfAny<V, V, D>
++	: V
++	: T;
++
++declare type IfAny<T, Y, N> = 0 extends 1 & T ? Y : N;
++
++declare type EmitsToProps<T extends EmitsOptions> = T extends string[]
++	? {
++		[K in string & `on${Capitalize<T[number]>}`]?: (...args: any[]) => any
++	}
++	: T extends ObjectEmitsOptions
++	? {
++		[K in string & `on${Capitalize<string & keyof T>}`]?: K extends `on${infer C}`
++		? T[Uncapitalize<C>] extends null
++		? (...args: any[]) => any
++		: (...args: T[Uncapitalize<C>] extends (...args: infer P) => any ? P : never) => any
++		: never
++	}
++	: {};
++
++declare type ComponentOptionsWithoutProps<
++	Props = {},
++	RawBindings = {},
++	D = {},
++	C extends ComputedOptions = {},
++	M extends MethodOptions = {},
++	Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++	E extends EmitsOptions = EmitsOptions,
++	EE extends string = string,
++	PE = Props & EmitsToProps<E>,
++	> = ComponentOptionsBase<PE, RawBindings, D, C, M, Mixin, Extends, E, EE, {}> & {
++		props?: undefined;
++	} & ThisType<CreateComponentPublicInstance<PE, RawBindings, D, C, M, Mixin, Extends, E>>;
++
++declare type ComponentPropsOptions<P = Data> = ComponentObjectPropsOptions<P> | string[];
++
++declare type ComponentProvideOptions = ObjectProvideOptions | Function;
++declare type ObjectProvideOptions = Record<string | symbol, unknown>;
++
++interface WatchOptionsBase {
++	flush?: FlushMode;
++}
++type InvalidateCbRegistrator = (cb: () => void) => void;
++type FlushMode = 'pre' | 'post' | 'sync';
++interface WatchOptions<Immediate = boolean> extends WatchOptionsBase {
++	immediate?: Immediate;
++	deep?: boolean;
++}
++type UnwrapNestedRefs<T> = T extends Ref ? T : UnwrapRefSimple<T>;
++
++declare type ComponentPublicInstance<
++	P = {}, // props type extracted from props option
++	B = {}, // raw bindings returned from setup()
++	D = {}, // return from data()
++	C extends ComputedOptions = {},
++	M extends MethodOptions = {},
++	E extends EmitsOptions = {},
++	PublicProps = P,
++	Defaults = {},
++	MakeDefaultsOptional extends boolean = false,
++	Options = ComponentOptionsBase<any, any, any, any, any, any, any, any, any>,
++	> = {
++		$: any;
++		$data: D;
++		$props: MakeDefaultsOptional extends true ? Partial<Defaults> & Omit<P & PublicProps, keyof Defaults> : P & PublicProps;
++		$attrs: Data;
++		$refs: Data;
++		$slots: any;
++		$root: ComponentPublicInstance | null;
++		$parent: ComponentPublicInstance | null;
++		// TODO restore emit type
++		$emit: (event: string, ...args: any[]) => void;
++		$el: any;
++		$options: Options & MergedComponentOptionsOverride;
++		$forceUpdate: () => void;
++		$nextTick(this: void, fn?: ((this: void) => void) | undefined): Promise<void>;
++		$watch(source: string | Function, cb: Function, options?: WatchOptions): WatchStopHandle;
++	} & P &
++	ShallowUnwrapRef<B> &
++	UnwrapNestedRefs<D> &
++	ExtractComputedReturns<C> &
++	M &
++	ComponentCustomProperties;
++
++declare type ExtractComputedReturns<T extends any> = {
++	[key in keyof T]: T[key] extends {
++		get: (...args: any[]) => infer TReturn;
++	}
++	? TReturn
++	: T[key] extends (...args: any[]) => infer TReturn
++	? TReturn
++	: never
++};
++
++declare type ComponentPublicInstanceConstructor<
++	T extends ComponentPublicInstance<Props, RawBindings, D, C, M> = ComponentPublicInstance<any>,
++	Props = any,
++	RawBindings = any,
++	D = any,
++	C extends ComputedOptions = ComputedOptions,
++	M extends MethodOptions = MethodOptions,
++	> = {
++		__isFragment?: never;
++		__isTeleport?: never;
++		__isSuspense?: never;
++		new(...args: any[]): T;
++	};
++
++declare type OnCleanup = (cleanupFn: () => void) => void;
++declare type WatchCallback<V = any, OV = any> = (value: V, oldValue: OV, onCleanup: OnCleanup) => any;
++declare type WatchOptionItem = string | WatchCallback | ObjectWatchOptionItem;
++declare type ObjectWatchOptionItem = {
++	handler: WatchCallback | string;
++} & WatchOptions;
++
++declare type ComponentWatchOptionItem = WatchOptionItem | WatchOptionItem[];
++
++declare type ComponentWatchOptions = Record<string, ComponentWatchOptionItem>;
++
++declare type ComputedOptions = Record<string, ComputedGetter<any> | WritableComputedOptions<any>>;
++
++/**
++ * Concrete component type matches its actual value: it's either an options
++ * object, or a function. Use this where the code expects to work with actual
++ * values, e.g. checking if its a function or not. This is mostly for internal
++ * implementation code.
++ */
++declare type ConcreteComponent<
++	Props = {},
++	RawBindings = any,
++	D = any,
++	C extends ComputedOptions = ComputedOptions,
++	M extends MethodOptions = MethodOptions,
++	> = ComponentOptions<Props, RawBindings, D, C, M>;
++
++declare interface Constructor<P = any> {
++	__isFragment?: never;
++	__isTeleport?: never;
++	__isSuspense?: never;
++	new(...args: any[]): {
++		$props: P;
++	};
++}
++
++declare type CreateComponentPublicInstance<
++	P = {},
++	B = {},
++	D = {},
++	C extends ComputedOptions = {},
++	M extends MethodOptions = {},
++	Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++	E extends EmitsOptions = {},
++	PublicProps = P,
++	Defaults = {},
++	MakeDefaultsOptional extends boolean = false,
++	PublicMixin = IntersectionMixin<Mixin> & IntersectionMixin<Extends>,
++	PublicP = UnwrapMixinsType<PublicMixin, 'P'> & EnsureNonVoid<P>,
++	PublicB = UnwrapMixinsType<PublicMixin, 'B'> & EnsureNonVoid<B>,
++	PublicD = UnwrapMixinsType<PublicMixin, 'D'> & EnsureNonVoid<D>,
++	PublicC extends ComputedOptions = UnwrapMixinsType<PublicMixin, 'C'> & EnsureNonVoid<C>,
++	PublicM extends MethodOptions = UnwrapMixinsType<PublicMixin, 'M'> & EnsureNonVoid<M>,
++	PublicDefaults = UnwrapMixinsType<PublicMixin, 'Defaults'> & EnsureNonVoid<Defaults>,
++	> = ComponentPublicInstance<
++		PublicP,
++		PublicB,
++		PublicD,
++		PublicC,
++		PublicM,
++		E,
++		PublicProps,
++		PublicDefaults,
++		MakeDefaultsOptional,
++		ComponentOptionsBase<P, B, D, C, M, Mixin, Extends, E, string, Defaults>
++	>;
++
++declare type EnsureNonVoid<T> = T extends void ? {} : T;
++declare type IntersectionMixin<T> = IsDefaultMixinComponent<T> extends true ? OptionTypesType<{}, {}, {}, {}, {}> : UnionToIntersection<ExtractMixin<T>>;
++declare type UnwrapMixinsType<T, Type extends OptionTypesKeys> = T extends OptionTypesType ? T[Type] : never;
++declare type OptionTypesKeys = 'P' | 'B' | 'D' | 'C' | 'M' | 'Defaults';
++declare type OptionTypesType<P = {}, B = {}, D = {}, C extends ComputedOptions = {}, M extends MethodOptions = {}, Defaults = {}> = {
++	P: P;
++	B: B;
++	D: D;
++	C: C;
++	M: M;
++	Defaults: Defaults;
++};
++declare type IsDefaultMixinComponent<T> = T extends ComponentOptionsMixin ? (ComponentOptionsMixin extends T ? true : false) : false;
++declare type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never;
++declare type ExtractMixin<T> = {
++	Mixin: MixinToOptionTypes<T>;
++}[T extends ComponentOptionsMixin ? 'Mixin' : never];
++declare type MixinToOptionTypes<T> = T extends ComponentOptionsBase<
++	infer P,
++	infer B,
++	infer D,
++	infer C,
++	infer M,
++	infer Mixin,
++	infer Extends,
++	any,
++	any,
++	infer Defaults
++>
++	? OptionTypesType<P & {}, B & {}, D & {}, C & {}, M & {}, Defaults & {}> & IntersectionMixin<Mixin> & IntersectionMixin<Extends>
++	: never;
++
++declare type Data = Record<string, unknown>;
++
++declare type DefaultFactory<T> = (props: Data) => T | null | undefined;
++
++declare type DefaultKeys<T> = {
++	[K in keyof T]: T[K] extends
++	| {
++		default: any;
++	}
++	| BooleanConstructor
++	| {
++		type: BooleanConstructor;
++	}
++	? T[K] extends {
++		type: BooleanConstructor;
++		required: true;
++	}
++	? never
++	: K
++	: never
++}[keyof T];
++
++declare type DefineComponent<
++	PropsOrPropOptions = {},
++	RawBindings = {},
++	D = {},
++	C extends ComputedOptions = ComputedOptions,
++	M extends MethodOptions = MethodOptions,
++	Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++	Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++	E extends EmitsOptions = {},
++	EE extends string = string,
++	PP = PublicProps,
++	Props = Readonly<PropsOrPropOptions extends ComponentPropsOptions ? ExtractPropTypes<PropsOrPropOptions> : PropsOrPropOptions> &
++	({} extends E ? {} : EmitsToProps<E>),
++	Defaults = ExtractDefaultPropTypes<PropsOrPropOptions>,
++	> = ComponentPublicInstanceConstructor<CreateComponentPublicInstance<Props, RawBindings, D, C, M, Mixin, Extends, E, PP & Props, Defaults, true> & Props> &
++	ComponentOptionsBase<Props, RawBindings, D, C, M, Mixin, Extends, E, EE, Defaults> &
++	PP;
++
++// declare function defineComponent<Props, RawBindings = object>(
++//     setup: (props: Readonly<Props>, ctx: SetupContext) => RawBindings | RenderFunction,
++// ): DefineComponent<Props, RawBindings>
++
++declare global {
++	function virtualDefineComponent<
++		Props = {},
++		RawBindings = {},
++		D = {},
++		C extends ComputedOptions = {},
++		M extends MethodOptions = {},
++		Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++		Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++		E extends EmitsOptions = EmitsOptions,
++		EE extends string = string,
++		>(
++			options: ComponentOptionsWithoutProps<Props, RawBindings, D, C, M, Mixin, Extends, E, EE>,
++	): DefineComponent<Props, RawBindings, D, C, M, Mixin, Extends, E, EE>;
++
++	function virtualDefineComponent<
++		PropNames extends string,
++		RawBindings,
++		D,
++		C extends ComputedOptions = {},
++		M extends MethodOptions = {},
++		Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++		Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++		E extends EmitsOptions = Record<string, any>,
++		EE extends string = string,
++		>(
++			options: ComponentOptionsWithArrayProps<PropNames, RawBindings, D, C, M, Mixin, Extends, E, EE>,
++	): DefineComponent<
++		Readonly<{
++			[key in PropNames]?: any
++		}>,
++		RawBindings,
++		D,
++		C,
++		M,
++		Mixin,
++		Extends,
++		E,
++		EE
++	>;
++
++	function virtualDefineComponent<
++		PropsOptions extends Readonly<ComponentPropsOptions>,
++		RawBindings,
++		D,
++		C extends ComputedOptions = {},
++		M extends MethodOptions = {},
++		Mixin extends ComponentOptionsMixin = ComponentOptionsMixin,
++		Extends extends ComponentOptionsMixin = ComponentOptionsMixin,
++		E extends EmitsOptions = Record<string, any>,
++		EE extends string = string,
++		>(
++			options: ComponentOptionsWithObjectProps<PropsOptions, RawBindings, D, C, M, Mixin, Extends, E, EE>,
++	): DefineComponent<PropsOptions, RawBindings, D, C, M, Mixin, Extends, E, EE>;
++}
++declare type VNodeRef = string | Ref | ((ref: Element | ComponentPublicInstance | null, refs: Record<string, any>) => void);
++
++declare type VNodeProps = {
++	key?: string | number | symbol;
++	ref?: VNodeRef;
++	ref_for?: boolean;
++	ref_key?: string;
++	onVnodeBeforeMount?: VNodeMountHook | VNodeMountHook[];
++	onVnodeMounted?: VNodeMountHook | VNodeMountHook[];
++	onVnodeBeforeUpdate?: VNodeUpdateHook | VNodeUpdateHook[];
++	onVnodeUpdated?: VNodeUpdateHook | VNodeUpdateHook[];
++	onVnodeBeforeUnmount?: VNodeMountHook | VNodeMountHook[];
++	onVnodeUnmounted?: VNodeMountHook | VNodeMountHook[];
++};
++
++declare type PublicProps = VNodeProps & AllowedComponentProps & ComponentCustomProps;
++
++interface Payload {
++	type: string;
++}
++
++interface MutationPayload extends Payload {
++	payload: any;
++}
++
++interface ActionPayload extends Payload {
++	payload: any;
++}
++
++interface SubscribeOptions {
++	prepend?: boolean;
++}
++interface DispatchOptions {
++	root?: boolean;
++}
++
++interface CommitOptions {
++	silent?: boolean;
++	root?: boolean;
++}
++interface Dispatch {
++	(type: string, payload?: any, options?: DispatchOptions): Promise<any>;
++	<P extends Payload>(payloadWithType: P, options?: DispatchOptions): Promise<any>;
++}
++
++interface Commit {
++	(type: string, payload?: any, options?: CommitOptions): void;
++	<P extends Payload>(payloadWithType: P, options?: CommitOptions): void;
++}
++interface ActionContext<S, R, G> {
++	dispatch: Dispatch;
++	commit: Commit;
++	state: S;
++	getters: G;
++	rootState: R;
++	rootGetters: any;
++}
++type ActionHandler<S, R, G> = (this: any, injectee: ActionContext<S, R, G>, payload?: any) => any;
++interface ActionObject<S, R, G> {
++	root?: boolean;
++	handler: ActionHandler<S, R, G>;
++}
++
++type Getter<S, R> = (this: void, state: S, getters: any, rootState: R, rootGetters: any) => any;
++type Action<S, R, G> = ActionHandler<S, R, G> | ActionObject<S, R, G>;
++type Mutation<S> = (this: void, state: S, payload?: any) => any;
++type VuexPlugin<S> = (store: any) => any;
++
++declare global {
++	function virtualDefineVuex<
++		S extends Record<string, any>,
++		G extends Record<string, Getter<S, S>>,
++		M extends Record<string, Mutation<S>>,
++		A extends Record<string, Action<S, S, any>>,
++		>(storeOptions: {
++			state?: S | (() => S);
++			getters?: G;
++			mutations?: M;
++			actions?: A;
++			//   modules?: ModuleTree<S>;
++			plugins?: VuexPlugin<S>[];
++			strict?: boolean;
++			devtools?: boolean;
++		}): typeof storeOptions;
++}
++
++// enable vue augmentation
++export { };
+diff --git a/extensions/vscode-vue-language-features/scripts/vuexHelpers.d.ts b/extensions/vscode-vue-language-features/scripts/vuexHelpers.d.ts
+new file mode 100644
+index 00000000..a08c0742
+--- /dev/null
++++ b/extensions/vscode-vue-language-features/scripts/vuexHelpers.d.ts
+@@ -0,0 +1,120 @@
++export interface UserVuexEntrypoint { }
++
++type FlatState<T> = T extends { state?: infer U; } ? Omit<T, 'state'> & { state: U extends () => infer T ? T : U; } : T;
++
++type VuexEntrypoint = {
++	[K in keyof UserVuexEntrypoint]: FlatState<UserVuexEntrypoint[K]> & { state: {}; getters: {}; mutations: {}; actions: {}; }
++};
++
++declare module 'vue/types/vue' {
++	interface Vue {
++		$storeTyped: import('vuex').Store<{
++			[M in keyof VuexEntrypoint]: VuexEntrypoint[M]['state']
++		}>;
++	}
++}
++
++// declare function defineVuexEntrypoint<S, G, M, A, M extends { state: S; getters: G }>(modules: M): M
++
++type Computed = () => any;
++type InlineComputed<T extends Function> = T extends (...args: any[]) => infer R ? () => R : never;
++type MutationMethod = (...args: any[]) => void;
++type ActionMethod = (...args: any[]) => Promise<any>;
++type InlineMethod<T extends (fn: any, ...args: any[]) => any> = T extends (fn: any, ...args: infer Args) => infer R ? (...args: Args) => R : never;
++type CustomVue = Vue & Record<string, any>;
++
++// interface MapperForState {
++//     <S, Map extends Record<string, (this: CustomVue, state: S, getters: any) => any> = {}>(map: Map): { [K in keyof Map]: InlineComputed<Map[K]> }
++// }
++
++// interface MapperForStateWithNamespace {
++//     <S, Map extends Record<string, (this: CustomVue, state: S, getters: any) => any> = {}>(namespace: string, map: Map): {
++//         [K in keyof Map]: InlineComputed<Map[K]>
++//     }
++// }
++
++interface MapperForAction {
++	<Map extends Record<string, (this: CustomVue, dispatch: Dispatch, ...args: any[]) => any>>(map: Map): { [K in keyof Map]: InlineMethod<Map[K]> };
++}
++
++interface MapperForActionWithNamespace {
++	<Map extends Record<string, (this: CustomVue, dispatch: Dispatch, ...args: any[]) => any>>(namespace: string, map: Map): {
++		[K in keyof Map]: InlineMethod<Map[K]>
++	};
++}
++
++interface MapperForMutation {
++	<Map extends Record<string, (this: CustomVue, commit: Commit, ...args: any[]) => any>>(map: Map): { [K in keyof Map]: InlineMethod<Map[K]> };
++}
++
++interface MapperForMutationWithNamespace {
++	<Map extends Record<string, (this: CustomVue, commit: Commit, ...args: any[]) => any>>(namespace: string, map: Map): {
++		[K in keyof Map]: InlineMethod<Map[K]>
++	};
++}
++
++// interface NamespacedMappers {
++//     mapState: Mapper<Computed> & MapperForState
++//     mapMutations: Mapper<MutationMethod> & MapperForMutation
++//     mapGetters: Mapper<Computed>
++//     mapActions: Mapper<ActionMethod> & MapperForAction
++// }
++// export declare function createNamespacedHelpers(namespace: string): NamespacedMappers
++
++type MapType = 'state' | 'getters' | 'mutations' | 'actions';
++type SubPath<T, Key extends keyof T, Type extends MapType> = Key extends string
++	? T[Key] extends Record<string, any>
++	? `${Key}/${Exclude<keyof T[Key][Type], keyof any[]> & string}`
++	: never
++	: never;
++type AnyMethod<Type extends MapType> = Type extends 'state'
++	? () => any
++	: Type extends 'getters'
++	? () => any
++	: Type extends 'mutations'
++	? MutationMethod
++	: Type extends 'actions'
++	? ActionMethod
++	: never;
++interface Mapper<Type extends MapType> {
++	<Key extends SubPath<VuexEntrypoint, keyof VuexEntrypoint, Type>>(map: Key[]): {
++		// [K in Key as Key extends `${string}/${infer U}` ? U : never]: any
++		// [K in Key]: Key extends `${infer M}/${string}` ? Key extends `${string}/${infer P}` ? `${M}.${P}` : never : never
++		[K in Key]: AnyMethod<Type>
++	};
++	// <Map extends Record<string, string>>(map: Map): { [K in keyof Map]: R }
++}
++type MapperWithNamespaceState<Type extends MapType> = <
++	M extends keyof VuexEntrypoint,
++	Key extends keyof VuexEntrypoint[M][Type],
++	Map extends Key[] | Record<string, Key>,
++	>(
++	namespace: M,
++	map: Map,
++) => Map extends Array<any>
++	? { [K in Map[number]]: () => VuexEntrypoint[M][Type][K] }
++	: Map extends Record<string, Key>
++	? { [K in keyof Map]: () => VuexEntrypoint[M][Type][Map[K]] }
++	: never;
++type MapperWithNamespaceMutationAction<Type extends MapType> = <
++	M extends keyof VuexEntrypoint,
++	Key extends keyof VuexEntrypoint[M][Type],
++	Map extends Key[] | Record<string, Key>,
++	>(
++	namespace: M,
++	map: Map,
++) => Map extends Array<any> ? { [K in Map[number]]: AnyMethod<Type> } : Map extends Record<string, Key> ? { [K in keyof Map]: () => AnyMethod<Type> } : never;
++export declare const mapState: MapperWithNamespaceState<'state'> & Mapper<'state'>;
++// mapState(['module1/a', ''])
++
++// const a = mapState('module1', ['a', 'b'])
++// const a2 = mapState('module1', {
++//     a1: 'a',
++//     b5: 'b',
++// })
++
++// TODO! support *for* (w/ callbacks) strategies before release!
++export declare const mapMutations: MapperWithNamespaceMutationAction<'mutations'> & Mapper<'mutations'>;
++// no for! complete!
++export declare const mapGetters: MapperWithNamespaceMutationAction<'getters'> & Mapper<'getters'>;
++export declare const mapActions: MapperWithNamespaceMutationAction<'actions'> & Mapper<'actions'>;
+diff --git a/extensions/vscode-vue-language-features/server.js b/extensions/vscode-vue-language-features/server.js
+index 06cc2396..a3366964 100644
+--- a/extensions/vscode-vue-language-features/server.js
++++ b/extensions/vscode-vue-language-features/server.js
+@@ -1,6 +1 @@
+-try {
+-    module.exports = require('./node_modules/@volar/vue-language-server/out/node');
+-}
+-catch {
+-    module.exports = require('./dist/node/server');
+-}
++module.exports = require('./dist/node/server')
+diff --git a/package.json b/package.json
+index 7c9c4c4a..393ac2bb 100644
+--- a/package.json
++++ b/package.json
+@@ -2,7 +2,7 @@
+   "private": true,
+   "scripts": {
+     "build": "tsc -b tsconfig.build.json",
+-    "watch": "npm run build && (npm run watch:base & npm run watch:vue-language-features & npm run watch:alpine-language-features & npm run watch:typescript-vue-plugin)",
++    "watch": "npm run build && (npm run watch:base & npm run watch:vue-language-features)",
+     "watch:base": "tsc -b tsconfig.build.json -w",
+     "watch:vue-language-features": "cd extensions/vscode-vue-language-features && npm run watch",
+     "watch:alpine-language-features": "cd extensions/vscode-alpine-language-features && npm run watch",
+diff --git a/packages/typescript-language-service/src/services/completions/basic.ts b/packages/typescript-language-service/src/services/completions/basic.ts
+index a66b494a..0b7178b1 100644
+--- a/packages/typescript-language-service/src/services/completions/basic.ts
++++ b/packages/typescript-language-service/src/services/completions/basic.ts
+@@ -37,6 +37,12 @@ export function register(
+ 				...preferences,
+ 				...options,
+ 			});
++			if (completionContext) {
++				// Add () to methods
++				// TODO introduce volar setting if merged: use ts setting as default
++				// TODO use better detection, removes too much, but used for virtualDefineComponentOnly
++				completionContext.entries = completionContext.entries.filter((entry) => !entry.name.startsWith('__'));
++			}
+ 		} catch { }
+ 
+ 		if (completionContext === undefined)
+@@ -51,6 +57,10 @@ export function register(
+ 			start: { line: position.line, character: 0 },
+ 			end: { line: position.line + 1, character: 0 },
+ 		});
++		const nextChat = document.getText({
++			start: position,
++			end: document.positionAt(offset + 1)
++		});
+ 		if (line.endsWith('\n')) {
+ 			line = line.substring(0, line.length - 1);
+ 		}
+@@ -115,6 +125,10 @@ export function register(
+ 					};
+ 				}
+ 
++				if (!nextChat.startsWith('(') && [vscode.CompletionItemKind.Function, vscode.CompletionItemKind.Method].includes(item.kind as any)) {
++					item.insertTextFormat = vscode.InsertTextFormat.Snippet;
++					item.insertText = `${item.insertText || item.label}($1)`;
++				}
+ 				if (range) {
+ 					if (vscode.Range.is(range)) {
+ 						item.textEdit = vscode.TextEdit.replace(range, item.insertText || item.label);
+diff --git a/packages/vue-code-gen/src/generators/script.ts b/packages/vue-code-gen/src/generators/script.ts
+index 2562fb39..1436fd58 100644
+--- a/packages/vue-code-gen/src/generators/script.ts
++++ b/packages/vue-code-gen/src/generators/script.ts
+@@ -207,14 +207,17 @@ export function generate(
+ 				isExportRawObject = script.content.substring(scriptRanges.exportDefault.expression.start, scriptRanges.exportDefault.expression.end).startsWith('{');
+ 			}
+ 			if (isExportRawObject && shimComponentOptions && scriptRanges?.exportDefault) {
++				const usedProps = scriptRanges.exportDefault.argsNode?.properties.map(({ name }) => (name as any).escapedText);
++				const dataIsPresent = usedProps?.includes('data');
+ 				addVirtualCode('script', 0, scriptRanges.exportDefault.expression.start);
+-				if (shimComponentOptions === 'defineComponent') {
+-					codeGen.addText(`(await import('${vueLibName}')).defineComponent(`);
+-				}
+-				else {
+-					codeGen.addText(`(await import('vue')).default.extend(`);
+-				}
+-				addVirtualCode('script', scriptRanges.exportDefault.expression.start, scriptRanges.exportDefault.expression.end);
++				codeGen.addText(`virtualDefineComponent({${dataIsPresent === false ? 'data() {},' : ''}`);
++				// if (shimComponentOptions === 'defineComponent') {
++				// 	codeGen.addText(`(await import('${vueLibName}')).defineComponent(`);
++				// }
++				// else {
++				// 	codeGen.addText(`(await import('vue')).default.extend(`);
++				// }
++				addVirtualCode('script', scriptRanges.exportDefault.expression.start + 1, scriptRanges.exportDefault.expression.end);
+ 				codeGen.addText(`)`);
+ 				addVirtualCode('script', scriptRanges.exportDefault.expression.end, script.content.length);
+ 			}
+@@ -530,7 +533,7 @@ export function generate(
+ 			codeGen.addText(`return __VLS_Component;\n`);
+ 		}
+ 		else {
+-			codeGen.addText(`const __VLS_slots = (await import('./${path.basename(fileName)}.__VLS_template')).default;\n`)
++			codeGen.addText(`const __VLS_slots = (await import('./${path.basename(fileName)}.__VLS_template')).default;\n`);
+ 			codeGen.addText(`return {} as typeof __VLS_Component & (new () => { ${getSlotsPropertyName(vueVersion)}: typeof __VLS_slots });\n`);
+ 		}
+ 		codeGen.addText(`})();`);
+diff --git a/packages/vue-component-meta/src/index.ts b/packages/vue-component-meta/src/index.ts
+index 646330cf..6cbd98f7 100644
+--- a/packages/vue-component-meta/src/index.ts
++++ b/packages/vue-component-meta/src/index.ts
+@@ -153,11 +153,11 @@ export function createComponentMetaChecker(tsconfigPath: string) {
+ 
+ 	/**
+ 	 * Get helper array to map internal properties added by vue to any components
+-	 * 
++	 *
+ 	 * @example
+ 	 * ```ts
+ 	 * import { createComponentMetaChecker } from 'vue-component-meta'
+-	 * 
++	 *
+ 	 * const checker = createComponentMetaChecker('path/to/tsconfig.json')
+ 	 * const meta = checker.getComponentMeta('path/to/component.vue')
+ 	 * const globalPropNames = checker.getGlobalPropNames();
+diff --git a/packages/vue-language-core/package.json b/packages/vue-language-core/package.json
+index 757435eb..3dd4dbae 100644
+--- a/packages/vue-language-core/package.json
++++ b/packages/vue-language-core/package.json
+@@ -14,14 +14,17 @@
+ 	},
+ 	"devDependencies": {
+ 		"@volar/pug-language-service": "0.39.2",
+-		"typescript": "latest"
++		"typescript": "latest",
++		"@types/semver": "^7.3.10"
+ 	},
+ 	"dependencies": {
+ 		"@volar/code-gen": "0.39.2",
+ 		"@volar/source-map": "0.39.2",
+ 		"@volar/vue-code-gen": "0.39.2",
+ 		"@vue/compiler-sfc": "^3.2.37",
+-		"@vue/reactivity": "^3.2.37"
++		"@vue/reactivity": "^3.2.37",
++		"fast-glob": "^3.2.11",
++		"semver": "^7.3.7"
+ 	},
+ 	"browser": {
+ 		"./out/plugins/vue-template-pug.js": "./out/plugins/empty.js"
+diff --git a/packages/vue-language-core/src/lsContext.ts b/packages/vue-language-core/src/lsContext.ts
+index bc048f88..cdbf2220 100644
+--- a/packages/vue-language-core/src/lsContext.ts
++++ b/packages/vue-language-core/src/lsContext.ts
+@@ -4,6 +4,8 @@ import { LanguageServiceHost } from './types';
+ import * as localTypes from './utils/localTypes';
+ import { createSourceFile, EmbeddedFile, VueLanguagePlugin } from './sourceFile';
+ import { createDocumentRegistry } from './documentRegistry';
++import { sync as fastGlobSync } from 'fast-glob';
++import * as semver from 'semver';
+ 
+ export type LanguageContext = ReturnType<typeof createLanguageContext>;
+ 
+@@ -17,6 +19,27 @@ export function createLanguageContext(
+ 	let tsProjectVersion = 0;
+ 
+ 	const ts = host.getTypeScriptModule();
++	const vuexPackageJson = ts.sys.readFile(path.join(host.getCurrentDirectory(), 'node_modules/vuex/package.json'));
++	const { version: vuexVersion } = vuexPackageJson && JSON.parse(vuexPackageJson) || {};
++	const useVuexPatching = vuexVersion ? semver.satisfies(vuexVersion, '3.x') : false;
++	const vuexEntrypoints = useVuexPatching ? fastGlobSync('**/store/{appState,index}.js', { absolute: true }) : [];
++	let vuexEntrypointVirtualFile: string | undefined;
++	let vuexEntrypointVirtualScript: ts.IScriptSnapshot | undefined;
++	let vuexEntrypointRealFile: string | undefined;
++	if (vuexEntrypoints.length) {
++		if (vuexEntrypoints.length > 1) console.warn('Several vuex entrypoints detected (using first):', vuexEntrypoints);
++		vuexEntrypointRealFile = vuexEntrypoints[0];
++		vuexEntrypointVirtualFile = path.join(path.dirname(vuexEntrypointRealFile), 'virtualDefineVuexEntrypoint.ts');
++		vuexEntrypointVirtualScript = ts.ScriptSnapshot.fromString([
++			`import appState from './${path.basename(vuexEntrypointRealFile)}';`,
++			'',
++			'type VuexModules = (typeof appState)["modules"];',
++			'',
++			'declare module "vuex/types/helpers" {',
++			'	interface UserVuexEntrypoint extends VuexModules { }',
++			'}'
++		].join('\n'));
++	}
+ 	const documentRegistry = createDocumentRegistry();
+ 	const compilerOptions = host.getCompilationSettings();
+ 	const vueCompilerOptions = host.getVueCompilationSettings();
+@@ -24,12 +47,15 @@ export function createLanguageContext(
+ 	const sharedTypesScript = ts.ScriptSnapshot.fromString(localTypes.getTypesCode(vueCompilerOptions.target ?? 3));
+ 	const scriptSnapshots = new Map<string, [string, ts.IScriptSnapshot]>();
+ 	const fileVersions = new WeakMap<EmbeddedFile, string>();
++	const virtualDefinePath = '/virtualDefines.d.ts';
++	const virtualDefineScript = ts.ScriptSnapshot.fromString(require('DEFINE_VIRTUAL_SCRIPT_CONTENTS'));
++	const vuexHelpersPatchedScript = ts.ScriptSnapshot.fromString(require('VUEX_HELPERS_PATCHED_SCRIPT'));
+ 	const _tsHost: Partial<ts.LanguageServiceHost> = {
+ 		fileExists: host.fileExists
+ 			? fileName => {
+ 
+ 				const basename = path.basename(fileName);
+-				if (basename === localTypes.typesFileName) {
++				if (fileName === virtualDefinePath || basename === localTypes.typesFileName) {
+ 					return true;
+ 				}
+ 
+@@ -63,6 +89,9 @@ export function createLanguageContext(
+ 					return true;
+ 				}
+ 
++				// TODO use similar method as above, but try to not create huge diff
++				// if ()
++
+ 				return !!host.fileExists?.(fileName);
+ 			}
+ 			: undefined,
+@@ -270,11 +299,14 @@ export function createLanguageContext(
+ 			}
+ 		}
+ 
++		tsFileNames.push(virtualDefinePath);
++		if (vuexEntrypointVirtualFile) tsFileNames.push(vuexEntrypointVirtualFile);
++
+ 		return tsFileNames;
+ 	}
+ 	function getScriptVersion(fileName: string) {
+ 		const basename = path.basename(fileName);
+-		if (basename === localTypes.typesFileName) {
++		if (fileName === virtualDefinePath || basename === localTypes.typesFileName) {
+ 			return '';
+ 		}
+ 		let mapped = documentRegistry.fromEmbeddedFileName(fileName);
+@@ -294,7 +326,14 @@ export function createLanguageContext(
+ 		}
+ 		return host.getScriptVersion(fileName);
+ 	}
+-	function getScriptSnapshot(fileName: string) {
++	function getScriptSnapshot(this: Partial<ts.LanguageServiceHost>, fileName: string) {
++		// TODO! return back mixin support
++		if (fileName === virtualDefinePath) return virtualDefineScript;
++		if (fileName === vuexEntrypointVirtualFile) return vuexEntrypointVirtualScript;
++		if (useVuexPatching && fileName.endsWith('node_modules/vuex/types/helpers.d.ts')) return vuexHelpersPatchedScript;
++		// if (fileName === vuexEntrypointRealFile) {
++		// 	console.log((this as ts.LanguageService).getCompletionsAtPosition('/Users/vitaly/Documents/trueconf/webrtc/node_modules/@tc-server/flux-store/src/modules/chatManager/index.js', 0, {}));
++		// }
+ 		const basename = path.basename(fileName);
+ 		if (basename === localTypes.typesFileName) {
+ 			return sharedTypesScript;
+@@ -313,6 +352,28 @@ export function createLanguageContext(
+ 		}
+ 		let tsScript = host.getScriptSnapshot(fileName);
+ 		if (tsScript) {
++			if (/store\/modules/.test(fileName)) {
++				let tsScriptText = tsScript.getText(0, tsScript.getLength());
++				let wrapped = true;
++				tsScriptText = tsScriptText.replace(/(\s*export default ){/, (_, g1) => {
++					wrapped = true;
++					return `${g1}virtualDefineVuex({`;
++				});
++				if (wrapped) {
++					const lines: string[] = tsScriptText.split('\n');
++					const patchIndex = [...lines].reverse().findIndex((str) => str.trim().match(/};?/));
++					if (patchIndex !== -1) {
++						lines[lines.length - patchIndex - 1] = '})';
++						tsScriptText = lines.join('\n');
++						console.log(`Patched vuex module: ${path.relative(host.getCurrentDirectory(), fileName)}`);
++					} else {
++						console.warn('Error line patching');
++					}
++				}
++				tsScript = ts.ScriptSnapshot.fromString(tsScriptText);
++				scriptSnapshots.set(fileName.toLowerCase(), [version, tsScript]);
++				return tsScript;
++			}
+ 			if (!(vueCompilerOptions.strictTemplates ?? false) && (
+ 				// for vue 2.6 and vue 3
+ 				basename === 'runtime-dom.d.ts' ||
+diff --git a/packages/vue-language-core/src/plugins/vue-typescript-scripts.ts b/packages/vue-language-core/src/plugins/vue-typescript-scripts.ts
+index 63c48089..381f1045 100644
+--- a/packages/vue-language-core/src/plugins/vue-typescript-scripts.ts
++++ b/packages/vue-language-core/src/plugins/vue-typescript-scripts.ts
+@@ -23,6 +23,7 @@ export default function (
+ 
+ 		getEmbeddedFile(fileName, sfc, i) {
+ 
++			//@ts-ignore
+ 			let shimComponentOptionsMode: 'defineComponent' | 'Vue.extend' | false = false;
+ 
+ 			if (
+@@ -63,7 +64,7 @@ export default function (
+ 					}
+ 					return bindTexts;
+ 				},
+-				shimComponentOptionsMode,
++				'defineComponent',
+ 				(compilerOptions.experimentalDowngradePropsAndEmitsToSetupReturnOnScriptSetup ?? 'onlyJs') === 'onlyJs'
+ 					? lang.value === 'js' || lang.value === 'jsx'
+ 					: !!compilerOptions.experimentalDowngradePropsAndEmitsToSetupReturnOnScriptSetup,
+diff --git a/packages/vue-language-core/src/sourceFile.ts b/packages/vue-language-core/src/sourceFile.ts
+index d9408222..1fc76ff8 100644
+--- a/packages/vue-language-core/src/sourceFile.ts
++++ b/packages/vue-language-core/src/sourceFile.ts
+@@ -159,9 +159,9 @@ export function createSourceFile(
+ 		}
+ 	});
+ 	const cssModuleClasses = useStyleCssClasses(sfc, style => !!style.module);
+-	const cssScopedClasses = useStyleCssClasses(sfc, style => {
+-		const setting = compilerOptions.experimentalResolveStyleCssClasses ?? 'scoped';
+-		return (setting === 'scoped' && style.scoped) || setting === 'always';
++	const cssScopedClasses = useStyleCssClasses(sfc, () => {
++		// TODO!(soon) patch jsconfig defaults instead
++		return true;
+ 	});
+ 	const templateCodeGens = computed(() => {
+ 
+@@ -211,7 +211,7 @@ export function createSourceFile(
+ 	});
+ 	const scriptRanges = computed(() =>
+ 		scriptAst.value
+-			? parseScriptRanges(ts, scriptAst.value, !!sfc.scriptSetup, false, false)
++			? parseScriptRanges(ts, scriptAst.value, !!sfc.scriptSetup, true, true)
+ 			: undefined
+ 	);
+ 	const scriptSetupRanges = computed(() =>
+diff --git a/packages/vue-language-server/src/project.ts b/packages/vue-language-server/src/project.ts
+index 0cef0ec9..e55530f0 100644
+--- a/packages/vue-language-server/src/project.ts
++++ b/packages/vue-language-server/src/project.ts
+@@ -7,6 +7,8 @@ import type { createLsConfigs } from './configHost';
+ import { getDocumentSafely } from './utils';
+ import { LanguageConfigs, loadCustomPlugins, RuntimeEnvironment } from './common';
+ import { tsShared } from '@volar/vue-language-core';
++import { getWebpackAliasPaths } from './webpackAliases';
++import { join } from 'path/posix';
+ 
+ export interface Project extends ReturnType<typeof createProject> { }
+ 
+@@ -215,11 +217,31 @@ export async function createProject(
+ 			fileExists: projectSys.fileExists,
+ 			readFile: projectSys.readFile,
+ 		};
++		const addWebpackAliases = (parsed: ts.ParsedCommandLine) => {
++			const webpackConfig = join(rootPath, 'webpack.config.js');
++			if (parsed.options.baseUrl !== undefined || !ts.sys.fileExists(webpackConfig)) return;
++			const webpackPaths = getWebpackAliasPaths(ts, webpackConfig);
++			if (!webpackPaths) return;
++			parsed.options.baseUrl = rootPath;
++			// TODO! check windows
++			parsed.options.pathsBasePath = rootPath;
++			for (let [key, [val]] of Object.entries(webpackPaths)) {
++				// temp patch for testing TOOD! remove for prod
++				if (/^@.+\/.+-store/.test(key)) {
++					webpackPaths[key] = [val.replace('dist/', 'src/modules/')];
++					break;
++				}
++			}
++			parsed.options.paths = webpackPaths;
++		};
+ 		if (typeof tsConfig === 'string') {
+-			return tsShared.createParsedCommandLine(ts, parseConfigHost, tsConfig);
++			const parsed = tsShared.createParsedCommandLine(ts, parseConfigHost, tsConfig);
++			addWebpackAliases(parsed);
++			return parsed;
+ 		}
+ 		else {
+ 			const content = ts.parseJsonConfigFileContent({}, parseConfigHost, rootPath, tsConfig, 'tsconfig.json');
++			addWebpackAliases(content);
+ 			content.options.outDir = undefined; // TODO: patching ts server broke with outDir + rootDir + composite/incremental
+ 			content.fileNames = content.fileNames.map(shared.normalizeFileName);
+ 			return { ...content, vueOptions: {} };
+diff --git a/packages/vue-language-server/src/projects.ts b/packages/vue-language-server/src/projects.ts
+index ceeb1c51..8f0c6e12 100644
+--- a/packages/vue-language-server/src/projects.ts
++++ b/packages/vue-language-server/src/projects.ts
+@@ -448,6 +448,7 @@ function createWorkspace(
+ 	function getProjectByCreate(tsConfig: string) {
+ 		let project = projects.fsPathGet(tsConfig);
+ 		if (!project) {
++			console.log('getProjectByCreate', tsConfig)
+ 			project = createProject(
+ 				runtimeEnv,
+ 				languageConfigs,
+diff --git a/packages/vue-language-server/src/webpackAliases.ts b/packages/vue-language-server/src/webpackAliases.ts
+new file mode 100644
+index 00000000..50e2f6ea
+--- /dev/null
++++ b/packages/vue-language-server/src/webpackAliases.ts
+@@ -0,0 +1,120 @@
++import type * as typescript from 'typescript/lib/tsserverlibrary'
++
++type Alias = {
++    name: string
++    path: string
++}
++type Range = { start: number; end: number }
++// const rangesEqual = (range1: Range, range2: Range) => {
++//     return range1.start === range2.start && range1.end === range2.end
++// }
++const ignoreAliasEnding = ['.css', '.scss']
++const jsFileEndings = ['.js', '.mjs', '.cjs', '.ts', '.mts', '.cts', '.jsx', '.tsx', '.json']
++const getAliasData = ({ name, range }: { name: string; range: Range }, getText: (range: Range) => string): void | Alias => {
++    // TODO to utils: parse object outline
++    if (/["']/.test(name)) name = name.slice(1, -1)
++    // normalizing by default
++    if (name.endsWith('/')) name = name.slice(0, -1)
++    let content = getText(range).slice(1).trim()
++    // Fallback for older TS version (eg 4.4)
++    // if (rangesEqual(range, nameRange)) {
++    //     const parts = /['"]?(.+?)['"]?: ?(.+)/.exec(getText(range))
++    //     if (!parts) return
++    //     name = parts[1]!
++    //     content = parts[2]!
++    // }
++
++    const guessedImport = /(?:path.)?(?:resolve|join)\(__dirname, (.+)\)/.exec(content)?.[1]
++    if (!guessedImport) return
++    let guessedPath = guessedImport
++        .split(/,\s?/)
++        .map(str => str.slice(1, -1))
++        .join('/')
++
++    if (ignoreAliasEnding.some(ext => guessedPath.endsWith(ext))) return
++
++    const isFile = guessedPath.split('/').at(-1)!.includes('.') && jsFileEndings.some(ext => guessedPath.endsWith(ext))
++    // ensure is relative (to baseUrl)
++    if (!guessedPath.startsWith('./')) guessedPath = `./${guessedPath}`
++
++    return { name: isFile ? name : `${name}/*`, path: isFile ? guessedPath : `${guessedPath}/*` }
++}
++
++export const getWebpackAliasPaths = (ts: typeof typescript, webpackConfigPath: string) => {
++    const contents = ts.sys.readFile(webpackConfigPath)
++    if (!contents) return
++    const files: Record<string, string> = {
++        '/dummy.ts': contents,
++    }
++    let dummyVersion = 1
++    const languageService = ts.createLanguageService({
++        getProjectVersion: () => dummyVersion.toString(),
++        getScriptVersion: () => dummyVersion.toString(),
++        getCompilationSettings: () => ({ allowJs: true, target: ts.ScriptTarget.ESNext }),
++        getScriptFileNames: () => Object.keys(files),
++        getScriptSnapshot: fileName => {
++            const contents = files[fileName]
++            if (contents === undefined) return
++            return ts.ScriptSnapshot.fromString(contents)
++        },
++        getCurrentDirectory: () => '',
++        getDefaultLibFileName: () => '',
++        fileExists: ts.sys.fileExists,
++        readFile: ts.sys.readFile,
++    })
++    const cb = (node: ts.Node) => {
++        if (![ts.SyntaxKind.FunctionDeclaration, ts.SyntaxKind.VariableDeclaration, ts.SyntaxKind.ObjectLiteralExpression].includes(node.kind)) return
++        console.log(ts.SyntaxKind[node.kind], node.getText())
++        node.forEachChild(cb)
++    }
++    const inspectChildItems = (items: ts.NavigationTree[]): { range: Range; name: string }[] | undefined => {
++        for (const item of items) {
++            if (item.kind === 'property' && item.text === 'resolve' && item.childItems) {
++                const aliasItem = item.childItems.find(item => {
++                    return item.kind === 'property' && item.text === 'alias' && item.childItems
++                })
++                if (aliasItem)
++                    return aliasItem.childItems!.map(({ text, spans, nameSpan }) => {
++                        const span = spans[0]
++                        // if (!nameSpan || span.start > nameSpan.start) return { span, name: text }
++                        // const diff = span.start - nameSpan.start
++                        // return {
++                        //     span: {
++                        //         start: span.start + nameSpan.length,
++                        //         length: span.length - diff,
++                        //     },
++                        //     name: text,
++                        // }
++                        const start = nameSpan && span.start <= nameSpan.start ? ts.textSpanEnd(nameSpan) : span.start
++                        return {
++                            name: text,
++                            range: {
++                                start,
++                                end: ts.textSpanEnd(span),
++                            },
++                        }
++                    })
++            }
++            if (item.childItems) {
++                const result = inspectChildItems(item.childItems)
++                if (result) return result
++            }
++        }
++    }
++    const { childItems } = languageService.getNavigationTree(Object.keys(files)[0])
++    if (!childItems) return
++    console.time('Get webpack alias')
++    const aliases = inspectChildItems(childItems)
++    console.timeEnd('Get webpack alias')
++    if (!aliases) {
++        console.log('No webpack resolve: {alias}')
++        return
++    }
++    const paths: NonNullable<NonNullable<typescript.ParsedTsconfig['options']>['paths']> = {}
++    for (const alias of aliases) {
++        const parsed = getAliasData(alias, ({ start, end }) => contents.slice(start, end))
++        if (parsed === undefined) continue
++        paths[parsed.name] = [parsed.path]
++    }
++    return paths
++}
+diff --git a/packages/vue-language-service/src/languageService.ts b/packages/vue-language-service/src/languageService.ts
+index 4d66736c..17ce130b 100644
+--- a/packages/vue-language-service/src/languageService.ts
++++ b/packages/vue-language-service/src/languageService.ts
+@@ -91,6 +91,8 @@ export function createLanguageService(
+ 	tsFaster.decorate(ts, core.typescriptLanguageServiceHost, vueTsLs);
+ 	const tsSettings = getTsSettings(configurationHost);
+ 	const tsLs = ts2.createLanguageService(ts, core.typescriptLanguageServiceHost, vueTsLs, tsSettings);
++	//@ts-ignore
++	// core.typescriptLanguageServiceHost.getCompletionsAtPosition = vueTsLs.getCompletionsAtPosition.bind(vueTsLs);
+ 	const vueDocuments = parseVueDocuments(core, tsLs);
+ 	const documentContext = getDocumentContext();
+ 
+diff --git a/packages/vue-language-service/src/tsConfigs.ts b/packages/vue-language-service/src/tsConfigs.ts
+index ec7b951c..4bdfe21c 100644
+--- a/packages/vue-language-service/src/tsConfigs.ts
++++ b/packages/vue-language-service/src/tsConfigs.ts
+@@ -71,6 +71,9 @@ export async function getPreferences(
+ 		generateReturnInDocTemplate: config.suggest?.jsdoc?.generateReturns ?? true,
+ 		includeCompletionsForImportStatements: config.suggest?.includeCompletionsForImportStatements ?? true,
+ 		includeCompletionsWithSnippetText: config.suggest?.includeCompletionsWithSnippetText ?? true,
++		includeCompletionsWithClassMemberSnippets: true,
++		includeCompletionsWithObjectLiteralMethodSnippets: true,
++		// useLabelDetailsInCompletionEntries: true,
+ 		allowIncompleteCompletions: true,
+ 		displayPartsForJSDoc: true,
+ 
+diff --git a/pnpm-lock.yaml b/pnpm-lock.yaml
+index b7d59605..32f91f9a 100644
+--- a/pnpm-lock.yaml
++++ b/pnpm-lock.yaml
+@@ -14,12 +14,12 @@ importers:
+       vue: ^3.2.37
+     devDependencies:
+       '@lerna-lite/cli': 1.9.0
+-      '@types/node': 18.6.1
++      '@types/node': 18.6.3
+       '@vscode/test-web': 0.0.29
+       typescript: 4.7.4
+-      vite: 3.0.3
++      vite: 3.0.4
+       vitepress: 1.0.0-alpha.4
+-      vitest: 0.19.1
++      vitest: 0.20.2
+       vue: 3.2.37
+ 
+   extensions/vscode-alpine-language-features:
+@@ -37,7 +37,7 @@ importers:
+       '@types/vscode': 1.67.0
+       '@volar/alpine-language-server': link:../../packages/alpine-language-server
+       '@volar/shared': link:../../packages/shared
+-      esbuild: 0.14.50
++      esbuild: 0.14.51
+       path-browserify: 1.0.1
+       punycode: 2.1.1
+       vsce: 2.10.0
+@@ -53,7 +53,7 @@ importers:
+     dependencies:
+       typescript-vue-plugin-forward: file:extensions/vscode-typescript-vue-plugin/typescript-vue-plugin-forward
+     devDependencies:
+-      esbuild: 0.14.50
++      esbuild: 0.14.51
+       typescript-vue-plugin: link:../../packages/typescript-vue-plugin
+       vsce: 2.10.0
+ 
+@@ -84,8 +84,8 @@ importers:
+       '@volar/vue-language-server': link:../../packages/vue-language-server
+       '@vue/compiler-sfc': 3.2.37
+       '@vue/reactivity': 3.2.37
+-      esbuild: 0.14.50
+-      esbuild-plugin-copy: 1.3.0_esbuild@0.14.50
++      esbuild: 0.14.51
++      esbuild-plugin-copy: 1.3.0_esbuild@0.14.51
+       path-browserify: 1.0.1
+       punycode: 2.1.1
+       semver: 7.3.7
+@@ -261,12 +261,15 @@ importers:
+ 
+   packages/vue-language-core:
+     specifiers:
++      '@types/semver': ^7.3.10
+       '@volar/code-gen': 0.39.2
+       '@volar/pug-language-service': 0.39.2
+       '@volar/source-map': 0.39.2
+       '@volar/vue-code-gen': 0.39.2
+       '@vue/compiler-sfc': ^3.2.37
+       '@vue/reactivity': ^3.2.37
++      fast-glob: ^3.2.11
++      semver: ^7.3.7
+       typescript: latest
+     dependencies:
+       '@volar/code-gen': link:../code-gen
+@@ -274,7 +277,10 @@ importers:
+       '@volar/vue-code-gen': link:../vue-code-gen
+       '@vue/compiler-sfc': 3.2.37
+       '@vue/reactivity': 3.2.37
++      fast-glob: 3.2.11
++      semver: 7.3.7
+     devDependencies:
++      '@types/semver': 7.3.10
+       '@volar/pug-language-service': link:../pug-language-service
+       typescript: 4.7.4
+ 
+@@ -530,6 +536,8 @@ packages:
+     resolution: {integrity: sha512-9uJveS9eY9DJ0t64YbIBZICtJy8a5QrDEVdiLCG97fVLpDTpGX7t8mMSb6OWw6Lrnjqj4O8zwjELX3dhoMgiBg==}
+     engines: {node: '>=6.0.0'}
+     hasBin: true
++    dependencies:
++      '@babel/types': 7.18.9
+ 
+   /@babel/types/7.18.9:
+     resolution: {integrity: sha512-WwMLAg2MvJmt/rKEVQBBhIVffMmnilX4oe0sRe7iPOHIGsqpruFHHdrfj4O1CMMtgMtCU4oPafZjDPCRgO57Wg==}
+@@ -537,7 +545,6 @@ packages:
+     dependencies:
+       '@babel/helper-validator-identifier': 7.18.6
+       to-fast-properties: 2.0.0
+-    dev: false
+ 
+   /@docsearch/css/3.1.1:
+     resolution: {integrity: sha512-utLgg7E1agqQeqCJn05DWC7XXMk4tMUUnL7MZupcknRu2OzGN13qwey2qA/0NAKkVBGugiWtON0+rlU0QIPojg==}
+@@ -645,6 +652,7 @@ packages:
+       npmlog: 6.0.2
+       yargs: 17.5.1
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -707,6 +715,7 @@ packages:
+       write-pkg: 4.0.0
+       yargs: 17.5.1
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -720,6 +729,7 @@ packages:
+       envinfo: 7.8.1
+       yargs: 17.5.1
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -733,6 +743,7 @@ packages:
+       p-map: 4.0.0
+       write-json-file: 4.3.0
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -745,6 +756,7 @@ packages:
+       chalk: 4.1.2
+       columnify: 1.6.0
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -784,6 +796,7 @@ packages:
+       write-pkg: 4.0.0
+       yargs: 17.5.1
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -808,6 +821,7 @@ packages:
+       write-json-file: 4.3.0
+       yargs: 17.5.1
+     transitivePeerDependencies:
++      - bluebird
+       - encoding
+       - supports-color
+     dev: true
+@@ -818,12 +832,10 @@ packages:
+     dependencies:
+       '@nodelib/fs.stat': 2.0.5
+       run-parallel: 1.2.0
+-    dev: true
+ 
+   /@nodelib/fs.stat/2.0.5:
+     resolution: {integrity: sha512-RkhPPp2zrqDAQA/2jNhnztcPAlv64XdhIp7a7454A5ovI7Bukxgt7MX7udwAu3zg1DcpPU0rz3VV1SeaqvY4+A==}
+     engines: {node: '>= 8'}
+-    dev: true
+ 
+   /@nodelib/fs.walk/1.2.8:
+     resolution: {integrity: sha512-oGB+UxlgWcgQkgwo8GcEGwemoTFt3FIO9ababBmaGwXIoBKZ+GTy0pP185beGg7Llih/NSHSV2XAs1lnznocSg==}
+@@ -831,7 +843,6 @@ packages:
+     dependencies:
+       '@nodelib/fs.scandir': 2.1.5
+       fastq: 1.13.0
+-    dev: true
+ 
+   /@npmcli/fs/2.1.1:
+     resolution: {integrity: sha512-1Q0uzx6c/NVNGszePbr5Gc2riSU1zLpNlo/1YWntH+eaPmMgBssAW0qXofCVkpdj3ce4swZtlDYQu+NKiYcptg==}
+@@ -854,6 +865,8 @@ packages:
+       promise-retry: 2.0.1
+       semver: 7.3.7
+       which: 2.0.2
++    transitivePeerDependencies:
++      - bluebird
+     dev: true
+ 
+   /@npmcli/installed-package-contents/1.0.7:
+@@ -895,6 +908,7 @@ packages:
+       read-package-json-fast: 2.0.3
+       which: 2.0.2
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -1041,8 +1055,8 @@ packages:
+     resolution: {integrity: sha512-/xUq6H2aQm261exT6iZTMifUySEt4GR5KX8eYyY+C4MSNPqSh9oNIP7tz2GLKTlFaiBbgZNxffoR3CVRG+cljw==}
+     dev: true
+ 
+-  /@types/node/18.6.1:
+-    resolution: {integrity: sha512-z+2vB6yDt1fNwKOeGbckpmirO+VBDuQqecXkgeIqDlaOtmKn6hPR/viQ8cxCfqLU4fTlvM3+YjM367TukWdxpg==}
++  /@types/node/18.6.3:
++    resolution: {integrity: sha512-6qKpDtoaYLM+5+AFChLhHermMQxc3TOEFIDzrZLPRGHPrLEwqFkkT5Kx3ju05g6X7uDPazz3jHbKPX0KzCjntg==}
+     dev: true
+ 
+   /@types/normalize-package-data/2.4.1:
+@@ -1456,7 +1470,6 @@ packages:
+     engines: {node: '>=8'}
+     dependencies:
+       fill-range: 7.0.1
+-    dev: true
+ 
+   /buffer-alloc-unsafe/1.1.0:
+     resolution: {integrity: sha512-TEM2iMIEQdJ2yjPJoSIsldnleVaAk1oW3DBVUykyOLsEsFmEc9kn+SFFPz+gl54KQNxlDnAwCXosOS9Okx2xAg==}
+@@ -1521,6 +1534,8 @@ packages:
+       ssri: 9.0.1
+       tar: 6.1.11
+       unique-filename: 1.1.1
++    transitivePeerDependencies:
++      - bluebird
+     dev: true
+ 
+   /cache-content-type/1.0.1:
+@@ -1927,12 +1942,22 @@ packages:
+ 
+   /debug/2.6.9:
+     resolution: {integrity: sha512-bC7ElrdJaJnPbAP+1EotYvqZsb3ecl5wi6Bfi6BJTUcNowp6cvspg0jXznRTKDjm/E7AdgFBVeAPVMNcKGsHMA==}
++    peerDependencies:
++      supports-color: '*'
++    peerDependenciesMeta:
++      supports-color:
++        optional: true
+     dependencies:
+       ms: 2.0.0
+     dev: true
+ 
+   /debug/3.2.7:
+     resolution: {integrity: sha512-CFjzYYAi4ThfiQvizrFQevTTXHtnCqWfe7x1AhgEscTz6ZbLbfoLRLPugTQyBth6f8ZERVUSyWHFD/7Wu4t1XQ==}
++    peerDependencies:
++      supports-color: '*'
++    peerDependenciesMeta:
++      supports-color:
++        optional: true
+     dependencies:
+       ms: 2.1.3
+     dev: true
+@@ -2163,7 +2188,7 @@ packages:
+     dev: true
+ 
+   /ee-first/1.1.1:
+-    resolution: {integrity: sha1-WQxhFWsK4vTwJVcyoViyZrxWsh0=}
++    resolution: {integrity: sha512-WMwm9LhRUo+WUaRN+vRuETqG89IgZphVSNkdFgeb6sS/E4OrDIN7t48CAewSHXc6C8lefD8KKfr5vY61brQlow==}
+     dev: true
+ 
+   /emmet/2.3.6:
+@@ -2235,8 +2260,8 @@ packages:
+       is-arrayish: 0.2.1
+     dev: true
+ 
+-  /esbuild-android-64/0.14.50:
+-    resolution: {integrity: sha512-H7iUEm7gUJHzidsBlFPGF6FTExazcgXL/46xxLo6i6bMtPim6ZmXyTccS8yOMpy6HAC6dPZ/JCQqrkkin69n6Q==}
++  /esbuild-android-64/0.14.51:
++    resolution: {integrity: sha512-6FOuKTHnC86dtrKDmdSj2CkcKF8PnqkaIXqvgydqfJmqBazCPdw+relrMlhGjkvVdiiGV70rpdnyFmA65ekBCQ==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [android]
+@@ -2244,8 +2269,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-android-arm64/0.14.50:
+-    resolution: {integrity: sha512-NFaoqEwa+OYfoYVpQWDMdKII7wZZkAjtJFo1WdnBeCYlYikvUhTnf2aPwPu5qEAw/ie1NYK0yn3cafwP+kP+OQ==}
++  /esbuild-android-arm64/0.14.51:
++    resolution: {integrity: sha512-vBtp//5VVkZWmYYvHsqBRCMMi1MzKuMIn5XDScmnykMTu9+TD9v0NMEDqQxvtFToeYmojdo5UCV2vzMQWJcJ4A==}
+     engines: {node: '>=12'}
+     cpu: [arm64]
+     os: [android]
+@@ -2253,8 +2278,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-darwin-64/0.14.50:
+-    resolution: {integrity: sha512-gDQsCvGnZiJv9cfdO48QqxkRV8oKAXgR2CGp7TdIpccwFdJMHf8hyIJhMW/05b/HJjET/26Us27Jx91BFfEVSA==}
++  /esbuild-darwin-64/0.14.51:
++    resolution: {integrity: sha512-YFmXPIOvuagDcwCejMRtCDjgPfnDu+bNeh5FU2Ryi68ADDVlWEpbtpAbrtf/lvFTWPexbgyKgzppNgsmLPr8PA==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [darwin]
+@@ -2262,8 +2287,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-darwin-arm64/0.14.50:
+-    resolution: {integrity: sha512-36nNs5OjKIb/Q50Sgp8+rYW/PqirRiFN0NFc9hEvgPzNJxeJedktXwzfJSln4EcRFRh5Vz4IlqFRScp+aiBBzA==}
++  /esbuild-darwin-arm64/0.14.51:
++    resolution: {integrity: sha512-juYD0QnSKwAMfzwKdIF6YbueXzS6N7y4GXPDeDkApz/1RzlT42mvX9jgNmyOlWKN7YzQAYbcUEJmZJYQGdf2ow==}
+     engines: {node: '>=12'}
+     cpu: [arm64]
+     os: [darwin]
+@@ -2271,8 +2296,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-freebsd-64/0.14.50:
+-    resolution: {integrity: sha512-/1pHHCUem8e/R86/uR+4v5diI2CtBdiWKiqGuPa9b/0x3Nwdh5AOH7lj+8823C6uX1e0ufwkSLkS+aFZiBCWxA==}
++  /esbuild-freebsd-64/0.14.51:
++    resolution: {integrity: sha512-cLEI/aXjb6vo5O2Y8rvVSQ7smgLldwYY5xMxqh/dQGfWO+R1NJOFsiax3IS4Ng300SVp7Gz3czxT6d6qf2cw0g==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [freebsd]
+@@ -2280,8 +2305,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-freebsd-arm64/0.14.50:
+-    resolution: {integrity: sha512-iKwUVMQztnPZe5pUYHdMkRc9aSpvoV1mkuHlCoPtxZA3V+Kg/ptpzkcSY+fKd0kuom+l6Rc93k0UPVkP7xoqrw==}
++  /esbuild-freebsd-arm64/0.14.51:
++    resolution: {integrity: sha512-TcWVw/rCL2F+jUgRkgLa3qltd5gzKjIMGhkVybkjk6PJadYInPtgtUBp1/hG+mxyigaT7ib+od1Xb84b+L+1Mg==}
+     engines: {node: '>=12'}
+     cpu: [arm64]
+     os: [freebsd]
+@@ -2289,8 +2314,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-32/0.14.50:
+-    resolution: {integrity: sha512-sWUwvf3uz7dFOpLzYuih+WQ7dRycrBWHCdoXJ4I4XdMxEHCECd8b7a9N9u7FzT6XR2gHPk9EzvchQUtiEMRwqw==}
++  /esbuild-linux-32/0.14.51:
++    resolution: {integrity: sha512-RFqpyC5ChyWrjx8Xj2K0EC1aN0A37H6OJfmUXIASEqJoHcntuV3j2Efr9RNmUhMfNE6yEj2VpYuDteZLGDMr0w==}
+     engines: {node: '>=12'}
+     cpu: [ia32]
+     os: [linux]
+@@ -2298,8 +2323,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-64/0.14.50:
+-    resolution: {integrity: sha512-u0PQxPhaeI629t4Y3EEcQ0wmWG+tC/LpP2K7yDFvwuPq0jSQ8SIN+ARNYfRjGW15O2we3XJvklbGV0wRuUCPig==}
++  /esbuild-linux-64/0.14.51:
++    resolution: {integrity: sha512-dxjhrqo5i7Rq6DXwz5v+MEHVs9VNFItJmHBe1CxROWNf4miOGoQhqSG8StStbDkQ1Mtobg6ng+4fwByOhoQoeA==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [linux]
+@@ -2307,8 +2332,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-arm/0.14.50:
+-    resolution: {integrity: sha512-VALZq13bhmFJYFE/mLEb+9A0w5vo8z+YDVOWeaf9vOTrSC31RohRIwtxXBnVJ7YKLYfEMzcgFYf+OFln3Y0cWg==}
++  /esbuild-linux-arm/0.14.51:
++    resolution: {integrity: sha512-LsJynDxYF6Neg7ZC7748yweCDD+N8ByCv22/7IAZglIEniEkqdF4HCaa49JNDLw1UQGlYuhOB8ZT/MmcSWzcWg==}
+     engines: {node: '>=12'}
+     cpu: [arm]
+     os: [linux]
+@@ -2316,8 +2341,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-arm64/0.14.50:
+-    resolution: {integrity: sha512-ZyfoNgsTftD7Rp5S7La5auomKdNeB3Ck+kSKXC4pp96VnHyYGjHHXWIlcbH8i+efRn9brszo1/Thl1qn8RqmhQ==}
++  /esbuild-linux-arm64/0.14.51:
++    resolution: {integrity: sha512-D9rFxGutoqQX3xJPxqd6o+kvYKeIbM0ifW2y0bgKk5HPgQQOo2k9/2Vpto3ybGYaFPCE5qTGtqQta9PoP6ZEzw==}
+     engines: {node: '>=12'}
+     cpu: [arm64]
+     os: [linux]
+@@ -2325,8 +2350,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-mips64le/0.14.50:
+-    resolution: {integrity: sha512-ygo31Vxn/WrmjKCHkBoutOlFG5yM9J2UhzHb0oWD9O61dGg+Hzjz9hjf5cmM7FBhAzdpOdEWHIrVOg2YAi6rTw==}
++  /esbuild-linux-mips64le/0.14.51:
++    resolution: {integrity: sha512-vS54wQjy4IinLSlb5EIlLoln8buh1yDgliP4CuEHumrPk4PvvP4kTRIG4SzMXm6t19N0rIfT4bNdAxzJLg2k6A==}
+     engines: {node: '>=12'}
+     cpu: [mips64el]
+     os: [linux]
+@@ -2334,8 +2359,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-ppc64le/0.14.50:
+-    resolution: {integrity: sha512-xWCKU5UaiTUT6Wz/O7GKP9KWdfbsb7vhfgQzRfX4ahh5NZV4ozZ4+SdzYG8WxetsLy84UzLX3Pi++xpVn1OkFQ==}
++  /esbuild-linux-ppc64le/0.14.51:
++    resolution: {integrity: sha512-xcdd62Y3VfGoyphNP/aIV9LP+RzFw5M5Z7ja+zdpQHHvokJM7d0rlDRMN+iSSwvUymQkqZO+G/xjb4/75du8BQ==}
+     engines: {node: '>=12'}
+     cpu: [ppc64]
+     os: [linux]
+@@ -2343,8 +2368,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-riscv64/0.14.50:
+-    resolution: {integrity: sha512-0+dsneSEihZTopoO9B6Z6K4j3uI7EdxBP7YSF5rTwUgCID+wHD3vM1gGT0m+pjCW+NOacU9kH/WE9N686FHAJg==}
++  /esbuild-linux-riscv64/0.14.51:
++    resolution: {integrity: sha512-syXHGak9wkAnFz0gMmRBoy44JV0rp4kVCEA36P5MCeZcxFq8+fllBC2t6sKI23w3qd8Vwo9pTADCgjTSf3L3rA==}
+     engines: {node: '>=12'}
+     cpu: [riscv64]
+     os: [linux]
+@@ -2352,8 +2377,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-linux-s390x/0.14.50:
+-    resolution: {integrity: sha512-tVjqcu8o0P9H4StwbIhL1sQYm5mWATlodKB6dpEZFkcyTI8kfIGWiWcrGmkNGH2i1kBUOsdlBafPxR3nzp3TDA==}
++  /esbuild-linux-s390x/0.14.51:
++    resolution: {integrity: sha512-kFAJY3dv+Wq8o28K/C7xkZk/X34rgTwhknSsElIqoEo8armCOjMJ6NsMxm48KaWY2h2RUYGtQmr+RGuUPKBhyw==}
+     engines: {node: '>=12'}
+     cpu: [s390x]
+     os: [linux]
+@@ -2361,8 +2386,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-netbsd-64/0.14.50:
+-    resolution: {integrity: sha512-0R/glfqAQ2q6MHDf7YJw/TulibugjizBxyPvZIcorH0Mb7vSimdHy0XF5uCba5CKt+r4wjax1mvO9lZ4jiAhEg==}
++  /esbuild-netbsd-64/0.14.51:
++    resolution: {integrity: sha512-ZZBI7qrR1FevdPBVHz/1GSk1x5GDL/iy42Zy8+neEm/HA7ma+hH/bwPEjeHXKWUDvM36CZpSL/fn1/y9/Hb+1A==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [netbsd]
+@@ -2370,8 +2395,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-openbsd-64/0.14.50:
+-    resolution: {integrity: sha512-7PAtmrR5mDOFubXIkuxYQ4bdNS6XCK8AIIHUiZxq1kL8cFIH5731jPcXQ4JNy/wbj1C9sZ8rzD8BIM80Tqk29w==}
++  /esbuild-openbsd-64/0.14.51:
++    resolution: {integrity: sha512-7R1/p39M+LSVQVgDVlcY1KKm6kFKjERSX1lipMG51NPcspJD1tmiZSmmBXoY5jhHIu6JL1QkFDTx94gMYK6vfA==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [openbsd]
+@@ -2379,19 +2404,19 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-plugin-copy/1.3.0_esbuild@0.14.50:
++  /esbuild-plugin-copy/1.3.0_esbuild@0.14.51:
+     resolution: {integrity: sha512-LOx1xJOlAaCFMRtokHjsJfEkrosy3RDRa8SUHmn7loo0gwrouBQQwLAmOyMECshf7gSR1cPSRtAHu3KF/kQsyw==}
+     peerDependencies:
+       esbuild: ^0.14.0
+     dependencies:
+       chalk: 4.1.2
+-      esbuild: 0.14.50
++      esbuild: 0.14.51
+       fs-extra: 10.1.0
+       globby: 11.1.0
+     dev: true
+ 
+-  /esbuild-sunos-64/0.14.50:
+-    resolution: {integrity: sha512-gBxNY/wyptvD7PkHIYcq7se6SQEXcSC8Y7mE0FJB+CGgssEWf6vBPfTTZ2b6BWKnmaP6P6qb7s/KRIV5T2PxsQ==}
++  /esbuild-sunos-64/0.14.51:
++    resolution: {integrity: sha512-HoHaCswHxLEYN8eBTtyO0bFEWvA3Kdb++hSQ/lLG7TyKF69TeSG0RNoBRAs45x/oCeWaTDntEZlYwAfQlhEtJA==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [sunos]
+@@ -2399,8 +2424,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-windows-32/0.14.50:
+-    resolution: {integrity: sha512-MOOe6J9cqe/iW1qbIVYSAqzJFh0p2LBLhVUIWdMVnNUNjvg2/4QNX4oT4IzgDeldU+Bym9/Tn6+DxvUHJXL5Zw==}
++  /esbuild-windows-32/0.14.51:
++    resolution: {integrity: sha512-4rtwSAM35A07CBt1/X8RWieDj3ZUHQqUOaEo5ZBs69rt5WAFjP4aqCIobdqOy4FdhYw1yF8Z0xFBTyc9lgPtEg==}
+     engines: {node: '>=12'}
+     cpu: [ia32]
+     os: [win32]
+@@ -2408,8 +2433,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-windows-64/0.14.50:
+-    resolution: {integrity: sha512-r/qE5Ex3w1jjGv/JlpPoWB365ldkppUlnizhMxJgojp907ZF1PgLTuW207kgzZcSCXyquL9qJkMsY+MRtaZ5yQ==}
++  /esbuild-windows-64/0.14.51:
++    resolution: {integrity: sha512-HoN/5HGRXJpWODprGCgKbdMvrC3A2gqvzewu2eECRw2sYxOUoh2TV1tS+G7bHNapPGI79woQJGV6pFH7GH7qnA==}
+     engines: {node: '>=12'}
+     cpu: [x64]
+     os: [win32]
+@@ -2417,8 +2442,8 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild-windows-arm64/0.14.50:
+-    resolution: {integrity: sha512-EMS4lQnsIe12ZyAinOINx7eq2mjpDdhGZZWDwPZE/yUTN9cnc2Ze/xUTYIAyaJqrqQda3LnDpADKpvLvol6ENQ==}
++  /esbuild-windows-arm64/0.14.51:
++    resolution: {integrity: sha512-JQDqPjuOH7o+BsKMSddMfmVJXrnYZxXDHsoLHc0xgmAZkOOCflRmC43q31pk79F9xuyWY45jDBPolb5ZgGOf9g==}
+     engines: {node: '>=12'}
+     cpu: [arm64]
+     os: [win32]
+@@ -2426,32 +2451,32 @@ packages:
+     dev: true
+     optional: true
+ 
+-  /esbuild/0.14.50:
+-    resolution: {integrity: sha512-SbC3k35Ih2IC6trhbMYW7hYeGdjPKf9atTKwBUHqMCYFZZ9z8zhuvfnZihsnJypl74FjiAKjBRqFkBkAd0rS/w==}
++  /esbuild/0.14.51:
++    resolution: {integrity: sha512-+CvnDitD7Q5sT7F+FM65sWkF8wJRf+j9fPcprxYV4j+ohmzVj2W7caUqH2s5kCaCJAfcAICjSlKhDCcvDpU7nw==}
+     engines: {node: '>=12'}
+     hasBin: true
+     requiresBuild: true
+     optionalDependencies:
+-      esbuild-android-64: 0.14.50
+-      esbuild-android-arm64: 0.14.50
+-      esbuild-darwin-64: 0.14.50
+-      esbuild-darwin-arm64: 0.14.50
+-      esbuild-freebsd-64: 0.14.50
+-      esbuild-freebsd-arm64: 0.14.50
+-      esbuild-linux-32: 0.14.50
+-      esbuild-linux-64: 0.14.50
+-      esbuild-linux-arm: 0.14.50
+-      esbuild-linux-arm64: 0.14.50
+-      esbuild-linux-mips64le: 0.14.50
+-      esbuild-linux-ppc64le: 0.14.50
+-      esbuild-linux-riscv64: 0.14.50
+-      esbuild-linux-s390x: 0.14.50
+-      esbuild-netbsd-64: 0.14.50
+-      esbuild-openbsd-64: 0.14.50
+-      esbuild-sunos-64: 0.14.50
+-      esbuild-windows-32: 0.14.50
+-      esbuild-windows-64: 0.14.50
+-      esbuild-windows-arm64: 0.14.50
++      esbuild-android-64: 0.14.51
++      esbuild-android-arm64: 0.14.51
++      esbuild-darwin-64: 0.14.51
++      esbuild-darwin-arm64: 0.14.51
++      esbuild-freebsd-64: 0.14.51
++      esbuild-freebsd-arm64: 0.14.51
++      esbuild-linux-32: 0.14.51
++      esbuild-linux-64: 0.14.51
++      esbuild-linux-arm: 0.14.51
++      esbuild-linux-arm64: 0.14.51
++      esbuild-linux-mips64le: 0.14.51
++      esbuild-linux-ppc64le: 0.14.51
++      esbuild-linux-riscv64: 0.14.51
++      esbuild-linux-s390x: 0.14.51
++      esbuild-netbsd-64: 0.14.51
++      esbuild-openbsd-64: 0.14.51
++      esbuild-sunos-64: 0.14.51
++      esbuild-windows-32: 0.14.51
++      esbuild-windows-64: 0.14.51
++      esbuild-windows-arm64: 0.14.51
+     dev: true
+ 
+   /escalade/3.1.1:
+@@ -2513,13 +2538,11 @@ packages:
+       glob-parent: 5.1.2
+       merge2: 1.4.1
+       micromatch: 4.0.5
+-    dev: true
+ 
+   /fastq/1.13.0:
+     resolution: {integrity: sha512-YpkpUnK8od0o1hmeSc7UUs/eB/vIPWJYjKck2QKIzAf71Vm1AAQ3EbuZB3g2JIy+pg+ERD0vqI79KyZiB2e2Nw==}
+     dependencies:
+       reusify: 1.0.4
+-    dev: true
+ 
+   /fd-slicer/1.1.0:
+     resolution: {integrity: sha512-cE1qsB/VwyQozZ+q1dGxR8LBYNZeofhEdUNGSMbQD3Gw2lAzX9Zb3uIU6Ebc/Fmyjo9AWWfnn0AUCHqtevs/8g==}
+@@ -2554,7 +2577,6 @@ packages:
+     engines: {node: '>=8'}
+     dependencies:
+       to-regex-range: 5.0.1
+-    dev: true
+ 
+   /find-up/2.1.0:
+     resolution: {integrity: sha512-NWzkk0jSJtTt08+FBFMvXoeZnOJD+jTtsRmBYbAIzJdX6l7dLgR7CTubCM5/eDdPUBvLCeVasP1brfVR/9/EZQ==}
+@@ -2714,7 +2736,7 @@ packages:
+     dev: true
+ 
+   /github-from-package/0.0.0:
+-    resolution: {integrity: sha1-l/tdlr/eiXMxPyDoKI75oWf6ZM4=}
++    resolution: {integrity: sha512-SyHy3T1v2NUXn29OsWdxmK6RwHD+vkj3v8en8AOBZ1wBQ/hCAQ5bAQTD02kW4W9tUp/3Qh6J8r9EvntiyCmOOw==}
+     dev: true
+ 
+   /glob-parent/5.1.2:
+@@ -2722,7 +2744,6 @@ packages:
+     engines: {node: '>= 6'}
+     dependencies:
+       is-glob: 4.0.3
+-    dev: true
+ 
+   /glob-parent/6.0.2:
+     resolution: {integrity: sha512-XxwI8EOhVQgWp6iDL+3b0r86f4d6AX6zSU55HfB4ydCEuXLXc5FcYeOu+nnGftS4TEju/11rt4KJPTMgbfmv4A==}
+@@ -3050,7 +3071,6 @@ packages:
+   /is-extglob/2.1.1:
+     resolution: {integrity: sha512-SbKbANkN603Vi4jEZv49LeVJMn4yGwsbzZworEoyEiutsN3nJYdbO36zfhGJ6QEDpOZIFkDtnq5JRxmvl3jsoQ==}
+     engines: {node: '>=0.10.0'}
+-    dev: true
+ 
+   /is-fullwidth-code-point/3.0.0:
+     resolution: {integrity: sha512-zymm5+u+sCsSWyD9qNaejV3DFvhCKclKdizYaJUuHA83RLjb7nSuGnddCHGv0hk+KY7BMAlsWeK4Ueg6EV6XQg==}
+@@ -3069,7 +3089,6 @@ packages:
+     engines: {node: '>=0.10.0'}
+     dependencies:
+       is-extglob: 2.1.1
+-    dev: true
+ 
+   /is-interactive/1.0.0:
+     resolution: {integrity: sha512-2HvIEKRoqS62guEC+qBjpvRubdX910WCMuJTZ+I9yvqKU2/12eSL549HMwtabb4oupdj2sMP50k+XJfB/8JE6w==}
+@@ -3087,7 +3106,6 @@ packages:
+   /is-number/7.0.0:
+     resolution: {integrity: sha512-41Cifkg6e8TylSpdtTpeLVMqvSBEVzTttHvERD741+pnZ8ANv0004MRL43QKPDlK9cGvNp6NZWZUBlbGXYxxng==}
+     engines: {node: '>=0.12.0'}
+-    dev: true
+ 
+   /is-obj/2.0.0:
+     resolution: {integrity: sha512-drqDG3cbczxxEJRoOXcOjtdp1J/lyp1mNn0xaznRs8+muBhgQcrnbspox5X5fOw0HnMnbfDzvnEMEtqDEJEo8w==}
+@@ -3256,6 +3274,8 @@ packages:
+     resolution: {integrity: sha512-JOUdCNlc21G50afBXfErUrr1RKymbgzlrO5KURY+wmDG1Uvd2jmxUJcHgylb/mYXy2SjiNZyYim/ptUBGsIi3A==}
+     dependencies:
+       morgan: 1.10.0
++    transitivePeerDependencies:
++      - supports-color
+     dev: true
+ 
+   /koa-mount/4.0.0:
+@@ -3334,6 +3354,7 @@ packages:
+       npm-package-arg: 9.1.0
+       npm-registry-fetch: 13.3.0
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -3347,6 +3368,7 @@ packages:
+       semver: 7.3.7
+       ssri: 9.0.1
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -3481,6 +3503,7 @@ packages:
+       socks-proxy-agent: 7.0.0
+       ssri: 9.0.1
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -3510,7 +3533,7 @@ packages:
+     dev: true
+ 
+   /media-typer/0.3.0:
+-    resolution: {integrity: sha1-hxDXrwqmJvj/+hzgAWhUUmMlV0g=}
++    resolution: {integrity: sha512-dq+qelQ9akHpcOl/gUVRTxVIOkAJ1wR3QAvb4RsVjS8oVoFjDGTc679wJYmUmknUF5HwMLOgb5O+a3KxfWapPQ==}
+     engines: {node: '>= 0.6'}
+     dev: true
+ 
+@@ -3538,7 +3561,6 @@ packages:
+   /merge2/1.4.1:
+     resolution: {integrity: sha512-8q7VEgMJW4J8tcfVPy8g09NcQwZdbwFEqhe/WZkoIzjn/3TGDwtOCYtXGxA3O8tPzpczCCDgv+P2P5y00ZJOOg==}
+     engines: {node: '>= 8'}
+-    dev: true
+ 
+   /methods/1.1.2:
+     resolution: {integrity: sha512-iclAHeNqNm68zFtnZ0e+1L2yUIdvzNoauKU4WBA3VvH/vPFieF7qfRlwUZU+DA9P9bPXIS90ulxoUoCH23sV2w==}
+@@ -3551,7 +3573,6 @@ packages:
+     dependencies:
+       braces: 3.0.2
+       picomatch: 2.3.1
+-    dev: true
+ 
+   /mime-db/1.52.0:
+     resolution: {integrity: sha512-sPU4uV7dYlvtWJxwwxHD0PuihVNiE7TyAbQ5SWxDCB9mUYvOgroQOwYQQOKPJ8CIbE+1ETVlOoK1UC2nU3gYvg==}
+@@ -3697,6 +3718,8 @@ packages:
+       depd: 2.0.0
+       on-finished: 2.3.0
+       on-headers: 1.0.2
++    transitivePeerDependencies:
++      - supports-color
+     dev: true
+ 
+   /ms/2.0.0:
+@@ -3772,6 +3795,7 @@ packages:
+       tar: 6.1.11
+       which: 2.0.2
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -3877,6 +3901,7 @@ packages:
+       npm-package-arg: 9.1.0
+       proc-log: 2.0.1
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -4073,6 +4098,7 @@ packages:
+       ssri: 9.0.1
+       tar: 6.1.11
+     transitivePeerDependencies:
++      - bluebird
+       - supports-color
+     dev: true
+ 
+@@ -4204,7 +4230,6 @@ packages:
+   /picomatch/2.3.1:
+     resolution: {integrity: sha512-JU3teHTNjmE2VCGFzuY8EXzCDVwEqB2a8fsIvwaStHhAWJEeVd1o1QD80CU6+ZdEXXSLbSsuLwJjkCBWqRQUVA==}
+     engines: {node: '>=8.6'}
+-    dev: true
+ 
+   /pify/2.3.0:
+     resolution: {integrity: sha512-udgsAY+fTnvv7kI7aaxbqwWNb0AHiB0qBO89PZKPkoTmGOgdbrHDKD+0B2X4uTfJ/FT1R09r9gTsjUjNJotuog==}
+@@ -4307,6 +4332,11 @@ packages:
+ 
+   /promise-inflight/1.0.1:
+     resolution: {integrity: sha512-6zWPyEOFaQBJYcGMHBKTKJ3u6TBsnMFOIZSa6ce1e/ZrrsOlnHRHbabMjLiBYKp+n44X9eUI6VUPaukCXHuG4g==}
++    peerDependencies:
++      bluebird: '*'
++    peerDependenciesMeta:
++      bluebird:
++        optional: true
+     dev: true
+ 
+   /promise-retry/2.0.1:
+@@ -4448,7 +4478,6 @@ packages:
+ 
+   /queue-microtask/1.2.3:
+     resolution: {integrity: sha512-NuaNSa6flKT5JaSYQzJok04JzTL1CA6aGhv5rfLW3PgqA+M2ChpZQnAC8h8i4ZFkBS8X5RqkDBHA7r4hej3K9A==}
+-    dev: true
+ 
+   /quick-lru/4.0.1:
+     resolution: {integrity: sha512-ARhCpm70fzdcvNQfPoy49IaanKkTlRWF2JMzqhcJbhSFRZv7nPTvZJdcY7301IPmvW+/p0RgIWnQDLJxifsQ7g==}
+@@ -4613,7 +4642,6 @@ packages:
+   /reusify/1.0.4:
+     resolution: {integrity: sha512-U9nH88a3fc/ekCF1l0/UP1IosiuIjyTh7hBvXVMHYgVcfGvt897Xguj2UOLDeI5BG2m7/uwyaLVT6fbtCwTyzw==}
+     engines: {iojs: '>=1.0.0', node: '>=0.10.0'}
+-    dev: true
+ 
+   /rimraf/3.0.2:
+     resolution: {integrity: sha512-JZkJMZkAGFFPP2YqXZXPbMlMBgsxzE8ILs4lMIX/2o0L9UBw9O/Y3o6wFw/i9YLapcUJWwqbi3kdxIPdC62TIA==}
+@@ -4639,7 +4667,6 @@ packages:
+     resolution: {integrity: sha512-5l4VyZR86LZ/lDxZTR6jqL8AFE2S0IFLMP26AbjsLVADxHdhB/c0GUsH+y39UfCi3dzz8OlQuPmnaJOMoDHQBA==}
+     dependencies:
+       queue-microtask: 1.2.3
+-    dev: true
+ 
+   /rxjs/7.5.6:
+     resolution: {integrity: sha512-dnyv2/YsXhnm461G+R/Pe5bWP41Nm6LBXEYWI6eiFP4fiwx6WRI/CD0zbdVAudd9xwLEF2IDcKXLHit0FYjUzw==}
+@@ -5042,14 +5069,12 @@ packages:
+   /to-fast-properties/2.0.0:
+     resolution: {integrity: sha512-/OaKK0xYrs3DmxRYqL/yDc+FxFUVYhDlXMhRmv3z915w2HF1tnN1omB354j8VUGO/hbRzyD6Y3sA7v7GS/ceog==}
+     engines: {node: '>=4'}
+-    dev: false
+ 
+   /to-regex-range/5.0.1:
+     resolution: {integrity: sha512-65P7iz6X5yEr1cwcgvQxbbIw7Uk3gOy5dIdtZ4rDveLqhrdJP+Li/Hx6tyK0NEb+2GCyneCMJiGqrADCSNk8sQ==}
+     engines: {node: '>=8.0'}
+     dependencies:
+       is-number: 7.0.0
+-    dev: true
+ 
+   /toidentifier/1.0.1:
+     resolution: {integrity: sha512-o5sSPKEkg/DIQNmH43V0/uerLrpzVedkUh8tGNvaeXpfpuwjKenlSox/2O/BTlZUtEe+JG7s5YhEz608PlAHRA==}
+@@ -5261,7 +5286,7 @@ packages:
+       stylus:
+         optional: true
+     dependencies:
+-      esbuild: 0.14.50
++      esbuild: 0.14.51
+       postcss: 8.4.14
+       resolve: 1.22.1
+       rollup: 2.77.0
+@@ -5269,8 +5294,8 @@ packages:
+       fsevents: 2.3.2
+     dev: true
+ 
+-  /vite/3.0.3:
+-    resolution: {integrity: sha512-sDIpIcl3mv1NUaSzZwiXGEy1ZoWwwC2vkxUHY6yiDacR6zf//ZFuBJrozO62gedpE43pmxnLATNR5IYUdAEkMQ==}
++  /vite/3.0.4:
++    resolution: {integrity: sha512-NU304nqnBeOx2MkQnskBQxVsa0pRAH5FphokTGmyy8M3oxbvw7qAXts2GORxs+h/2vKsD+osMhZ7An6yK6F1dA==}
+     engines: {node: ^14.18.0 || >=16.0.0}
+     hasBin: true
+     peerDependencies:
+@@ -5288,7 +5313,7 @@ packages:
+       terser:
+         optional: true
+     dependencies:
+-      esbuild: 0.14.50
++      esbuild: 0.14.51
+       postcss: 8.4.14
+       resolve: 1.22.1
+       rollup: 2.77.0
+@@ -5321,8 +5346,8 @@ packages:
+       - stylus
+     dev: true
+ 
+-  /vitest/0.19.1:
+-    resolution: {integrity: sha512-E/ZXpFMUahn731wzhMBNzWRp4mGgiZFT0xdHa32cbNO0CSaHpE9hTfteEU247Gi2Dula8uXo5vvrNB6dtszmQA==}
++  /vitest/0.20.2:
++    resolution: {integrity: sha512-AFXTHrwG4d2OO6SAL8WP5ZkOwLtgeF4tlrHfXFqrHc+5chNegeR53pge0lv/C4316SqJ2DbYaUBH8vh3CdF+BQ==}
+     engines: {node: '>=v14.16.0'}
+     hasBin: true
+     peerDependencies:
+@@ -5348,13 +5373,13 @@ packages:
+     dependencies:
+       '@types/chai': 4.3.1
+       '@types/chai-subset': 1.3.3
+-      '@types/node': 18.6.1
++      '@types/node': 18.6.3
+       chai: 4.3.6
+       debug: 4.3.4
+       local-pkg: 0.4.2
+       tinypool: 0.2.4
+       tinyspy: 1.0.0
+-      vite: 3.0.3
++      vite: 3.0.4
+     transitivePeerDependencies:
+       - less
+       - sass

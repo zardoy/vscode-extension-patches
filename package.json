@@ -8,7 +8,8 @@
   },
   "dependencies": {
     "@zardoy/utils": "^0.0.5",
-    "execa": "5"
+    "execa": "5",
+    "tsd": "^0.22.0"
   },
   "devDependencies": {
     "@zardoy/tsconfig": "^1.4.0",
