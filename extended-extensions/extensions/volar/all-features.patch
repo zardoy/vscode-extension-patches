@@ -1263,7 +1263,7 @@ index 757435eb..3dd4dbae 100644
  	"browser": {
  		"./out/plugins/vue-template-pug.js": "./out/plugins/empty.js"
 diff --git a/packages/vue-language-core/src/lsContext.ts b/packages/vue-language-core/src/lsContext.ts
-index bc048f88..cdbf2220 100644
+index bc048f88..ac6cfaa7 100644
 --- a/packages/vue-language-core/src/lsContext.ts
 +++ b/packages/vue-language-core/src/lsContext.ts
 @@ -4,6 +4,8 @@ import { LanguageServiceHost } from './types';
@@ -1275,12 +1275,19 @@ index bc048f88..cdbf2220 100644
  
  export type LanguageContext = ReturnType<typeof createLanguageContext>;
  
-@@ -17,6 +19,27 @@ export function createLanguageContext(
+@@ -17,6 +19,34 @@ export function createLanguageContext(
  	let tsProjectVersion = 0;
  
  	const ts = host.getTypeScriptModule();
 +	const vuexPackageJson = ts.sys.readFile(path.join(host.getCurrentDirectory(), 'node_modules/vuex/package.json'));
-+	const { version: vuexVersion } = vuexPackageJson && JSON.parse(vuexPackageJson) || {};
++	let vuexVersion: string | undefined;
++	if (vuexPackageJson) {
++		try {
++			vuexVersion = JSON.parse(vuexPackageJson).version;
++		} catch (err) {
++			console.warn('Failed to enable vuex patching. Incorrect JSON', err);
++		}
++	}
 +	const useVuexPatching = vuexVersion ? semver.satisfies(vuexVersion, '3.x') : false;
 +	const vuexEntrypoints = useVuexPatching ? fastGlobSync('**/store/{appState,index}.js', { absolute: true }) : [];
 +	let vuexEntrypointVirtualFile: string | undefined;
@@ -1303,7 +1310,7 @@ index bc048f88..cdbf2220 100644
  	const documentRegistry = createDocumentRegistry();
  	const compilerOptions = host.getCompilationSettings();
  	const vueCompilerOptions = host.getVueCompilationSettings();
-@@ -24,12 +47,15 @@ export function createLanguageContext(
+@@ -24,12 +54,15 @@ export function createLanguageContext(
  	const sharedTypesScript = ts.ScriptSnapshot.fromString(localTypes.getTypesCode(vueCompilerOptions.target ?? 3));
  	const scriptSnapshots = new Map<string, [string, ts.IScriptSnapshot]>();
  	const fileVersions = new WeakMap<EmbeddedFile, string>();
@@ -1320,7 +1327,7 @@ index bc048f88..cdbf2220 100644
  					return true;
  				}
  
-@@ -63,6 +89,9 @@ export function createLanguageContext(
+@@ -63,6 +96,9 @@ export function createLanguageContext(
  					return true;
  				}
  
@@ -1330,7 +1337,7 @@ index bc048f88..cdbf2220 100644
  				return !!host.fileExists?.(fileName);
  			}
  			: undefined,
-@@ -270,11 +299,14 @@ export function createLanguageContext(
+@@ -270,11 +306,14 @@ export function createLanguageContext(
  			}
  		}
  
@@ -1346,7 +1353,7 @@ index bc048f88..cdbf2220 100644
  			return '';
  		}
  		let mapped = documentRegistry.fromEmbeddedFileName(fileName);
-@@ -294,7 +326,14 @@ export function createLanguageContext(
+@@ -294,7 +333,14 @@ export function createLanguageContext(
  		}
  		return host.getScriptVersion(fileName);
  	}
@@ -1362,11 +1369,11 @@ index bc048f88..cdbf2220 100644
  		const basename = path.basename(fileName);
  		if (basename === localTypes.typesFileName) {
  			return sharedTypesScript;
-@@ -313,6 +352,28 @@ export function createLanguageContext(
+@@ -313,6 +359,28 @@ export function createLanguageContext(
  		}
  		let tsScript = host.getScriptSnapshot(fileName);
  		if (tsScript) {
-+			if (/store\/modules/.test(fileName)) {
++			if (vuexVersion && /(store|src)\/modules/.test(fileName)) {
 +				let tsScriptText = tsScript.getText(0, tsScript.getLength());
 +				let wrapped = true;
 +				tsScriptText = tsScriptText.replace(/(\s*export default ){/, (_, g1) => {
@@ -1439,7 +1446,7 @@ index d9408222..1fc76ff8 100644
  	);
  	const scriptSetupRanges = computed(() =>
 diff --git a/packages/vue-language-server/src/project.ts b/packages/vue-language-server/src/project.ts
-index 0cef0ec9..e55530f0 100644
+index 0cef0ec9..310581a9 100644
 --- a/packages/vue-language-server/src/project.ts
 +++ b/packages/vue-language-server/src/project.ts
 @@ -7,6 +7,8 @@ import type { createLsConfigs } from './configHost';
@@ -1451,12 +1458,13 @@ index 0cef0ec9..e55530f0 100644
  
  export interface Project extends ReturnType<typeof createProject> { }
  
-@@ -215,11 +217,31 @@ export async function createProject(
+@@ -215,11 +217,32 @@ export async function createProject(
  			fileExists: projectSys.fileExists,
  			readFile: projectSys.readFile,
  		};
-+		const addWebpackAliases = (parsed: ts.ParsedCommandLine) => {
++		const patchTsconfig = (parsed: ts.ParsedCommandLine) => {
 +			const webpackConfig = join(rootPath, 'webpack.config.js');
++			if (parsed.options.jsx === undefined) parsed.options.jsx = ts.JsxEmit.Preserve;
 +			if (parsed.options.baseUrl !== undefined || !ts.sys.fileExists(webpackConfig)) return;
 +			const webpackPaths = getWebpackAliasPaths(ts, webpackConfig);
 +			if (!webpackPaths) return;
@@ -1475,27 +1483,15 @@ index 0cef0ec9..e55530f0 100644
  		if (typeof tsConfig === 'string') {
 -			return tsShared.createParsedCommandLine(ts, parseConfigHost, tsConfig);
 +			const parsed = tsShared.createParsedCommandLine(ts, parseConfigHost, tsConfig);
-+			addWebpackAliases(parsed);
++			patchTsconfig(parsed);
 +			return parsed;
  		}
  		else {
  			const content = ts.parseJsonConfigFileContent({}, parseConfigHost, rootPath, tsConfig, 'tsconfig.json');
-+			addWebpackAliases(content);
++			patchTsconfig(content);
  			content.options.outDir = undefined; // TODO: patching ts server broke with outDir + rootDir + composite/incremental
  			content.fileNames = content.fileNames.map(shared.normalizeFileName);
  			return { ...content, vueOptions: {} };
-diff --git a/packages/vue-language-server/src/projects.ts b/packages/vue-language-server/src/projects.ts
-index ceeb1c51..8f0c6e12 100644
---- a/packages/vue-language-server/src/projects.ts
-+++ b/packages/vue-language-server/src/projects.ts
-@@ -448,6 +448,7 @@ function createWorkspace(
- 	function getProjectByCreate(tsConfig: string) {
- 		let project = projects.fsPathGet(tsConfig);
- 		if (!project) {
-+			console.log('getProjectByCreate', tsConfig)
- 			project = createProject(
- 				runtimeEnv,
- 				languageConfigs,
 diff --git a/packages/vue-language-server/src/webpackAliases.ts b/packages/vue-language-server/src/webpackAliases.ts
 new file mode 100644
 index 00000000..50e2f6ea

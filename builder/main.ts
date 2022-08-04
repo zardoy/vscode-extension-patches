@@ -132,6 +132,8 @@ const main = async () => {
                 manifest,
                 mergeDeepRight(manifest, {
                     browser: undefined,
+                    // I don't mind of leaving it as is, but it can confuse people
+                    sponsor: undefined,
                     main: newEntrypoint,
                     repository: process.env.GITHUB_REPOSITORY ?? 'd/d',
                     icon: undefined,
