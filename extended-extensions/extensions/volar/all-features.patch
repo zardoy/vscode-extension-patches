@@ -1144,7 +1144,7 @@ index 7c9c4c4a..393ac2bb 100644
      "watch:vue-language-features": "cd extensions/vscode-vue-language-features && npm run watch",
      "watch:alpine-language-features": "cd extensions/vscode-alpine-language-features && npm run watch",
 diff --git a/packages/typescript-language-service/src/services/completions/basic.ts b/packages/typescript-language-service/src/services/completions/basic.ts
-index a66b494a..0b7178b1 100644
+index a66b494a..3f03bbb6 100644
 --- a/packages/typescript-language-service/src/services/completions/basic.ts
 +++ b/packages/typescript-language-service/src/services/completions/basic.ts
 @@ -37,6 +37,12 @@ export function register(
@@ -1171,13 +1171,15 @@ index a66b494a..0b7178b1 100644
  		if (line.endsWith('\n')) {
  			line = line.substring(0, line.length - 1);
  		}
-@@ -115,6 +125,10 @@ export function register(
+@@ -115,6 +125,12 @@ export function register(
  					};
  				}
  
 +				if (!nextChat.startsWith('(') && [vscode.CompletionItemKind.Function, vscode.CompletionItemKind.Method].includes(item.kind as any)) {
++					let insertText = item.insertText || item.label;
++					if (!item.insertText || item.insertTextFormat !== vscode.InsertTextFormat.Snippet) insertText = insertText.replace(/\$/g, '\\$');
 +					item.insertTextFormat = vscode.InsertTextFormat.Snippet;
-+					item.insertText = `${item.insertText || item.label}($1)`;
++					item.insertText = `${insertText}($1)`;
 +				}
  				if (range) {
  					if (vscode.Range.is(range)) {
