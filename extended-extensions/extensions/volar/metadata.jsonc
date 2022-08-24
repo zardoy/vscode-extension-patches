@@ -6,7 +6,7 @@
         "displayName": "Test Patched Extension 1",
         "description": "Volar with better support for Vue2",
         "name": "testPatched1",
-        "version": "0.39.4",
+        "version": "0.39.5",
         "keywords": [],
         "scripts": {
             "build": "npm run build:node",

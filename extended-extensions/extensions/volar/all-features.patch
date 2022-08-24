@@ -1144,13 +1144,78 @@ index 7c9c4c4a..393ac2bb 100644
      "watch:vue-language-features": "cd extensions/vscode-vue-language-features && npm run watch",
      "watch:alpine-language-features": "cd extensions/vscode-alpine-language-features && npm run watch",
 diff --git a/packages/typescript-language-service/src/services/completions/basic.ts b/packages/typescript-language-service/src/services/completions/basic.ts
-index a66b494a..3f03bbb6 100644
+index a66b494a..cd9708e9 100644
 --- a/packages/typescript-language-service/src/services/completions/basic.ts
 +++ b/packages/typescript-language-service/src/services/completions/basic.ts
-@@ -37,6 +37,12 @@ export function register(
+@@ -14,6 +14,19 @@ export interface Data {
+ 	originalItem: ts.CompletionEntry;
+ }
+ 
++export function findChildContainingPosition(
++	typescript: typeof import('typescript/lib/tsserverlibrary'),
++	sourceFile: ts.SourceFile,
++	position: number,
++): ts.Node | undefined {
++	function find(node: ts.Node): ts.Node | undefined {
++		if (position >= node.getStart() && position < node.getEnd()) return typescript.forEachChild(node, find) || node;
++
++		return;
++	}
++	return find(sourceFile);
++}
++
+ export function register(
+ 	languageService: ts.LanguageService,
+ 	getTextDocument: (uri: string) => TextDocument | undefined,
+@@ -27,7 +40,7 @@ export function register(
+ 		if (!document)
+ 			return;
+ 
+-		const preferences = await settings.getPreferences?.(document.uri) ?? {};
++		const preferences = (await settings.getPreferences?.(document.uri)) ?? {};
+ 		const fileName = shared.uriToFsPath(document.uri);
+ 		const offset = document.offsetAt(position);
+ 
+@@ -37,6 +50,48 @@ export function register(
  				...preferences,
  				...options,
  			});
++			const sourceFile = languageService.getProgram()!.getSourceFile(fileName)!;
++			const node = completionContext && findChildContainingPosition(ts, sourceFile, offset);
++			if (node) {
++				const checkIsInExportDefault = (node: ts.Node) => {
++					if (ts.isObjectLiteralExpression(node) && (ts.isExportAssignment(node.parent) || ts.isExportAssignment(node.parent.parent))) return true;
++					return false;
++				};
++				const nextChat = document.getText({
++					start: position,
++					end: document.positionAt(offset + 1)
++				});
++				const patchExportDefaultSuggestion = nextChat !== ':' && nextChat !== '(' && checkIsInExportDefault(node) || (ts.isIdentifier(node) && checkIsInExportDefault(node.parent));
++				if (patchExportDefaultSuggestion) {
++					const patchInsertText = (completion: ts.CompletionEntry, insertText: string, pretendWithLabel = true) => ({
++						...completion,
++						insertText: pretendWithLabel ? completion.name + insertText : insertText,
++						isSnippet: true,
++						customPluginCompletion: true,
++					}) as ts.CompletionEntry;
++					completionContext!.entries = completionContext!.entries.map((completion) => {
++						const { name, kind } = completion;
++						if (kind === ts.ScriptElementKind.warning) return completion;
++						const objectProps = ['methods', 'computed', 'watch', 'components', 'props'];
++						if (objectProps.includes(name)) {
++							return patchInsertText(completion, `: {\n\t$1\n},`);
++						}
++						if (convertKind(kind) === vscode.CompletionItemKind.Method) {
++							return patchInsertText(completion, `() {\n\t$1\n},`);
++						}
++						if (['mixins'].includes(name)) {
++							return patchInsertText(completion, `: [$1],`);
++						}
++						return completion;
++					});
++				}
++			}
 +			if (completionContext) {
 +				// Add () to methods
 +				// TODO introduce volar setting if merged: use ts setting as default
@@ -1160,7 +1225,7 @@ index a66b494a..3f03bbb6 100644
  		} catch { }
  
  		if (completionContext === undefined)
-@@ -51,6 +57,10 @@ export function register(
+@@ -51,6 +106,10 @@ export function register(
  			start: { line: position.line, character: 0 },
  			end: { line: position.line + 1, character: 0 },
  		});
@@ -1171,11 +1236,13 @@ index a66b494a..3f03bbb6 100644
  		if (line.endsWith('\n')) {
  			line = line.substring(0, line.length - 1);
  		}
-@@ -115,6 +125,12 @@ export function register(
+@@ -115,6 +174,14 @@ export function register(
  					};
  				}
  
-+				if (!nextChat.startsWith('(') && [vscode.CompletionItemKind.Function, vscode.CompletionItemKind.Method].includes(item.kind as any)) {
++				//@ts-ignore
++				if (!tsEntry.customPluginCompletion
++					&& !nextChat.startsWith('(') && [vscode.CompletionItemKind.Function, vscode.CompletionItemKind.Method].includes(item.kind as any)) {
 +					let insertText = item.insertText || item.label;
 +					if (!item.insertText || item.insertTextFormat !== vscode.InsertTextFormat.Snippet) insertText = insertText.replace(/\$/g, '\\$');
 +					item.insertTextFormat = vscode.InsertTextFormat.Snippet;
@@ -1184,6 +1251,16 @@ index a66b494a..3f03bbb6 100644
  				if (range) {
  					if (vscode.Range.is(range)) {
  						item.textEdit = vscode.TextEdit.replace(range, item.insertText || item.label);
+@@ -226,7 +293,8 @@ export function register(
+ 			}
+ 
+ 			// In all other cases, fallback to using the insertText
+-			return insertText;
++			//@ts-ignore
++			return tsEntry.customPluginCompletion ? undefined : insertText;
+ 		}
+ 
+ 		function convertKind(kind: string): vscode.CompletionItemKind {
 diff --git a/packages/vue-code-gen/src/generators/script.ts b/packages/vue-code-gen/src/generators/script.ts
 index 2562fb39..1436fd58 100644
 --- a/packages/vue-code-gen/src/generators/script.ts
